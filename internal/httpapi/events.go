@@ -19,7 +19,7 @@ import (
 // current picture, after which everything is a delta.
 const EventSnapshot = "snapshot"
 
-// snapshotView is DESIGN §7's snapshot payload.
+// snapshotView is the snapshot payload (docs/protocol.md).
 type snapshotView struct {
 	Self      userDTO             `json:"self"`
 	StreamID  string              `json:"streamId"`

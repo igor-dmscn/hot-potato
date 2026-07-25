@@ -33,9 +33,9 @@ type Config struct {
 	LoginMaxFailures   int           // HP_LOGIN_MAX_FAILURES, per IP+email
 	LoginFailureWindow time.Duration // HP_LOGIN_FAILURE_WINDOW
 
-	// Every timing constant in DESIGN §9 is a field here rather than a literal
-	// somewhere. That is what lets the presence and reaper tests run in
-	// milliseconds instead of sleeping for ten seconds.
+	// Every timing constant in the policy envelope is a field here rather than a
+	// literal somewhere. That is what lets the presence and reaper tests run in
+	// milliseconds instead of sleeping for ten seconds (docs/protocol.md).
 	SSEHeartbeat     time.Duration // HP_SSE_HEARTBEAT
 	SSERetry         time.Duration // HP_SSE_RETRY — the client's reconnect hint
 	SSEWriteDeadline time.Duration // HP_SSE_WRITE_DEADLINE — per write, not per stream

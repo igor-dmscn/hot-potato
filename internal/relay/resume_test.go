@@ -90,7 +90,7 @@ func TestResumeASingleFile(t *testing.T) {
 	}
 }
 
-// The one the plan says to read twice: a folder interrupted *inside* an entry.
+// The case worth reading twice: a folder interrupted *inside* an entry.
 // The zip.Writer and its open entry stay live, so the resumed entry finishes with
 // the right CRC and the archive opens.
 func TestResumeMidEntryInsideAFolder(t *testing.T) {

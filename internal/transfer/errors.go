@@ -12,9 +12,9 @@ var (
 	// ErrExpired is an offer acted on after its TTL but before the reaper got
 	// to it.
 	ErrExpired = errors.New("offer has expired")
-	// ErrAlreadyAttached is a second GET or a second POST on the data plane.
-	// DESIGN §6 gives it its own code, so it gets its own error rather than
-	// hiding inside an illegal transition.
+	// ErrAlreadyAttached is a second GET or a second POST on the data plane. The
+	// protocol gives it its own code, so it gets its own error rather than hiding
+	// inside an illegal transition.
 	ErrAlreadyAttached = errors.New("already attached")
 	// ErrRecipientNotAttached is a Sender arriving before the Recipient has
 	// parked. The rendezvous is Recipient-first by design (ADR 0002).

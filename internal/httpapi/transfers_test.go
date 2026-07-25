@@ -274,7 +274,7 @@ func TestEitherPartyMayCancel(t *testing.T) {
 }
 
 // An unanswered offer expires and both parties are told, as transfer.failed
-// with reason offer_expired — DESIGN §7 has no separate expired event.
+// with reason offer_expired — there is no separate expired event.
 func TestReaperExpiresUnansweredOffers(t *testing.T) {
 	t.Parallel()
 	clk := &clock{t: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}

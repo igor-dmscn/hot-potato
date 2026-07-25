@@ -18,7 +18,7 @@ type User struct {
 	DisplayName string `json:"displayName"`
 }
 
-// Event names, matching DESIGN §7.
+// Event names (docs/protocol.md).
 const (
 	EventOnline  = "user.online"
 	EventOffline = "user.offline"
@@ -38,7 +38,7 @@ type Presence interface {
 // Options is shared by both implementations.
 type Options struct {
 	// Grace is how long a User may hold no Streams before being announced
-	// offline. DESIGN §9 says 10s; tests use milliseconds.
+	// offline. The default is 10s; tests use milliseconds.
 	Grace time.Duration
 	// Announce is called with EventOnline or EventOffline. Presence does not
 	// import the bus: whoever wires it decides what an announcement is.

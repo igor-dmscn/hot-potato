@@ -32,7 +32,7 @@ const (
 	KindFolder Kind = "folder"
 )
 
-// Failure reasons, from DESIGN §7.
+// Failure reasons (docs/protocol.md).
 const (
 	ReasonSenderDisconnected    = "sender_disconnected"
 	ReasonRecipientDisconnected = "recipient_disconnected"

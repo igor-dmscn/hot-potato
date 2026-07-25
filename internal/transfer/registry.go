@@ -23,8 +23,8 @@ var (
 	ErrInvalidPayload = errors.New("invalid payload")
 )
 
-// Limits is DESIGN §9's policy envelope, minus the timings that belong to other
-// packages. main fills it from config.
+// Limits is the policy envelope, minus the timings that belong to other
+// packages. main fills it from config (docs/protocol.md).
 type Limits struct {
 	OfferTTL          time.Duration
 	MaxOutbound       int   // non-terminal Transfers a User may be sending

@@ -115,7 +115,7 @@ func TestSenderResumesASingleFile(t *testing.T) {
 	p.sender.await(t, EventTransferCompleted)
 }
 
-// Mid-entry inside a folder, which is the case the plan says to read twice: the
+// Mid-entry inside a folder, the case worth reading twice: the
 // zip.Writer and its half-written entry survive in the Owner's memory, so the
 // resumed entry finishes with the right CRC and the archive opens.
 func TestSenderResumesMidEntryInAFolder(t *testing.T) {

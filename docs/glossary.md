@@ -1,8 +1,9 @@
 # Glossary
 
 Every noun this codebase uses on purpose, what it means, and the Go type that
-embodies it. The vocabulary comes from the project's `CONTEXT.md`; this file
-attaches it to the code.
+embodies it. The vocabulary was fixed before the code was written; this file
+attaches it to the code. The wire contract those nouns travel over is
+[`protocol.md`](protocol.md).
 
 Two rules run through all of it. **One word per concept** — the "avoid" lists are
 not style preferences, they are there because two words for one thing eventually
@@ -256,7 +257,7 @@ registering with a TTL).
 | `auth.Service` | signup, login, logout, and the middleware that puts a User in a context |
 | `auth.UserStore` / `SessionStore` | the two interfaces `postgres` satisfies and `auth.Memory` fakes |
 | `transfer.Registry` | this instance's write model, and the mutex the state machine does not have |
-| `transfer.Limits` | DESIGN §9's policy envelope, enforced inside the lock that inserts |
+| `transfer.Limits` | the policy envelope, enforced inside the lock that inserts |
 | `relay.Session` | a relay in progress, including a folder's live `zip.Writer` and its half-written entry |
 | `relay.Options` | the copy buffer, the progress callback, the cancel signal, the zip timestamp |
 | `httpapi.Server` | every handler, the routing, and the reaper loop |

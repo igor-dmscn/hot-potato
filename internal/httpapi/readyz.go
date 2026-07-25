@@ -62,5 +62,5 @@ func (a *api) readyz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, map[string]any{"ready": ready, "checks": status})
 }
 
-// defaultReadyTimeout is DESIGN §6's two-second budget.
+// defaultReadyTimeout is the two-second budget for all checks together.
 const defaultReadyTimeout = 2 * time.Second

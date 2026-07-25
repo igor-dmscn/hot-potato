@@ -6,16 +6,16 @@ import (
 	"net/http"
 )
 
-// The error envelope from DESIGN §6. Every non-2xx response in the API is one
-// of these, so a client has exactly one shape to parse.
+// The error envelope. Every non-2xx response in the API is one of these, so a
+// client has exactly one shape to parse (docs/protocol.md).
 type errorBody struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 }
 
-// Error codes. DESIGN §6 lists the domain ones; bad_request and internal are
-// added here because malformed input and a broken dependency have to say
-// something too.
+// Error codes. The domain ones are the protocol's (docs/protocol.md);
+// bad_request and internal are added here because malformed input and a broken
+// dependency have to say something too.
 const (
 	codeUnauthorized         = "unauthorized"
 	codeForbidden            = "forbidden"

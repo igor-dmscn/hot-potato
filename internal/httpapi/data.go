@@ -449,7 +449,7 @@ func (a *api) finish(ctx context.Context, id transfer.ID, bytes int64, started t
 	}
 }
 
-// reasonFor turns a relay failure into one of DESIGN §7's reasons. Which side of
+// reasonFor turns a relay failure into one of the protocol's reasons. Which side of
 // the copy broke is what decides who gets blamed, which is why relay.Copy
 // distinguishes a read failure from a write one.
 func reasonFor(err error) string {
