@@ -6,3 +6,6 @@
 # local config and coverage
 .env
 coverage.out
+
+# built by `make build`
+/bin/
