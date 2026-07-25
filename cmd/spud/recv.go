@@ -50,7 +50,7 @@ func recv(ctx context.Context, c *client, dir string) error {
 	// The GET parks until the Sender attaches, which is why nothing is written
 	// until the first byte arrives.
 	started := time.Now()
-	written, path, err := c.download(ctx, offered.ID, dir)
+	written, path, err := c.fetch(ctx, offered.ID, dir, offered.Payload.Kind)
 	if err != nil {
 		return err
 	}
@@ -93,14 +93,53 @@ func nextOffer(ctx context.Context, s *stream, snap snapshot) (transferView, err
 	return offered, nil
 }
 
-// download streams GET /d/{id} straight to disk.
-func (c *client) download(ctx context.Context, id, dir string) (int64, string, error) {
-	res, err := c.do(ctx, "GET", c.base+"/d/"+id, nil, "")
+// fetch downloads the Payload, reconnecting with Range if the relay breaks.
+//
+// Only a single file can be resumed this way. A folder arrives as a zip built as
+// it streams, so a broken folder download has to start over — the server answers
+// 416 to a non-zero Range on one, and there is nothing to be done about it
+// (ADR 0004).
+func (c *client) fetch(ctx context.Context, id, dir, kind string) (int64, string, error) {
+	var have int64
+	var path string
+
+	for attempt := 1; ; attempt++ {
+		n, p, err := c.download(ctx, id, dir, have)
+		have += n
+		if p != "" {
+			path = p
+		}
+		if err == nil {
+			return have, path, nil
+		}
+		if kind != "file" || attempt >= c.attempts {
+			if have > 0 {
+				return have, path, fmt.Errorf("%w — %s of a %s is on disk at %s",
+					err, human(have), kind, path)
+			}
+			return have, path, err
+		}
+		// The offset comes from what is on disk, not from anything the server
+		// said. The Owner counts bytes it wrote into a socket, which after a
+		// disconnection is more than came out of it; only this end knows what it
+		// actually holds.
+		fmt.Printf("download interrupted with %s on disk: %v — reconnecting from there\n",
+			human(have), err)
+	}
+}
+
+// download streams GET /d/{id} straight to disk, starting at from.
+func (c *client) download(ctx context.Context, id, dir string, from int64) (int64, string, error) {
+	res, err := c.do(ctx, "GET", c.base+"/d/"+id, nil, "", func(r *http.Request) {
+		if from > 0 {
+			r.Header.Set("Range", fmt.Sprintf("bytes=%d-", from))
+		}
+	})
 	if err != nil {
 		return 0, "", err
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusPartialContent {
 		return 0, "", fmt.Errorf("download: %s", errorFrom(res))
 	}
 
@@ -109,16 +148,22 @@ func (c *client) download(ctx context.Context, id, dir string) (int64, string, e
 	// caution applied to the filename it hands back.
 	path := filepath.Join(dir, filepath.Base(filepath.Clean("/"+name)))
 
-	f, err := os.Create(path)
+	// Append when resuming, truncate when starting: the partial file *is* the
+	// resume state, so it must survive a failed attempt.
+	flags := os.O_CREATE | os.O_WRONLY
+	if from > 0 {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(path, flags, 0o644)
 	if err != nil {
-		return 0, "", err
+		return 0, path, err
 	}
 	defer f.Close()
 
 	written, err := io.Copy(f, res.Body)
 	if err != nil {
-		// A truncated file is worse than none: the control plane will say why.
-		os.Remove(path)
 		return written, path, fmt.Errorf("relay ended early after %s: %w", human(written), err)
 	}
 	return written, path, nil

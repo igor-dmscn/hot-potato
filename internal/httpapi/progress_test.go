@@ -19,7 +19,13 @@ type progressEvent struct {
 // A whole relay's worth of progress events, in order, plus the completion.
 func TestProgressIsMonotonicAndEndsAtTheTotal(t *testing.T) {
 	t.Parallel()
-	x := newHarness(t, func(o *harnessOpts) { o.progressInterval = time.Millisecond })
+	x := newHarness(t, func(o *harnessOpts) {
+		o.progressInterval = time.Millisecond
+		// A thousand progress events a second outruns a 32-event Stream buffer,
+		// and an overflowing Stream is dropped on purpose (ADR 0003). That is
+		// correct behaviour and not what this test is about.
+		o.streamBuffer = 4096
+	})
 	p := newPair(t, x)
 
 	parts := []part{pattern("big.bin", 32<<20)}
@@ -142,7 +148,10 @@ func TestATinyTransferStillCompletesWithoutProgress(t *testing.T) {
 // A failed relay's last progress event must not claim more than it moved.
 func TestNoProgressAfterAFailure(t *testing.T) {
 	t.Parallel()
-	x := newHarness(t, func(o *harnessOpts) { o.progressInterval = time.Millisecond })
+	x := newHarness(t, func(o *harnessOpts) {
+		o.progressInterval = time.Millisecond
+		o.streamBuffer = 4096
+	})
 	p := newPair(t, x)
 
 	parts := []part{pattern("big.bin", 16<<20)}

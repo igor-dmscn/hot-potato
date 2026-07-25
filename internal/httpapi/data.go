@@ -44,8 +44,36 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The Range is settled before anything is claimed. A Recipient only gets one
+	// attach, and a request that is going to be refused must not spend it — an
+	// earlier version checked the Range after attaching and left the Transfer
+	// unusable by the retry that would have worked.
+	//
+	// The value is the Recipient's own count of what it holds, not the Owner's:
+	// the Owner counts bytes written into a socket, which after a disconnection is
+	// larger by whatever was in flight.
+	known, err := a.transfers.Get(id)
+	if err != nil {
+		a.transferError(w, r, err)
+		return
+	}
+	if u.ID != known.Recipient {
+		// Re-checked under the lock below; this is the cheap early answer, and it
+		// keeps an unauthorized caller from learning anything by timing.
+		writeError(w, http.StatusForbidden, codeForbidden, "that transfer is not yours to receive")
+		return
+	}
+	resumeFrom, ok := relay.ParseRangeStart(r.Header.Get("Range"))
+	if !ok || (resumeFrom > 0 && known.Payload.Kind != transfer.KindFile) {
+		// A folder cannot be resumed into a new response: the archive was being
+		// built as it streamed, and that stream went with the socket.
+		writeError(w, http.StatusRequestedRangeNotSatisfiable, codeBadRequest,
+			"only `Range: bytes=N-` on a single file can be resumed")
+		return
+	}
+
 	t, err := a.mutate(r.Context(), id, func(t *transfer.Transfer) error {
-		// The Recipient's identity is verified here, on every request: a
+		// The Recipient's identity is verified here too, under the lock: a
 		// Transfer ID is not an authorization token.
 		if u.ID != t.Recipient {
 			return transfer.ErrForbidden
@@ -76,7 +104,15 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 	// which is the entire reason the Recipient goes first: an HTTP status cannot
 	// be retracted, so committing 200 on arrival would leave no way to report a
 	// Sender who never shows up (ADR 0002).
-	a.emit(r.Context(), EventTransferReady, []string{t.Sender}, map[string]any{"id": t.ID})
+	//
+	// The invitation always carries a position, even the first one. A Sender has
+	// no other way to learn that a Recipient came back with a Range and rewound
+	// it — and "start here" is a better instruction than "start".
+	a.emit(r.Context(), EventTransferReady, []string{t.Sender}, map[string]any{
+		"id":     t.ID,
+		"entry":  0,
+		"offset": resumeFrom,
+	})
 
 	wait := time.NewTimer(a.rendezvousWait)
 	defer wait.Stop()
@@ -88,7 +124,7 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 	select {
 	case src := <-sink.Ready():
 		a.metrics.RendezvousWait(a.now().Sub(parked).Seconds())
-		a.pump(w, r, t, src, sink)
+		a.pump(w, r, t, src, sink, resumeFrom)
 	case <-r.Context().Done():
 		a.finish(announce, id, 0, a.now(), relay.WriteError{Err: r.Context().Err()})
 	case <-wait.C:
@@ -105,19 +141,9 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 // lives in this function's frame for the whole Transfer. That is the only state a
 // resumed Transfer needs, and it is also why resume cannot survive the Owner's
 // death (ADR 0008).
-func (a *api) pump(w http.ResponseWriter, r *http.Request, t transfer.Transfer, src *relay.Source, sink *relay.Sink) {
+func (a *api) pump(w http.ResponseWriter, r *http.Request, t transfer.Transfer, src *relay.Source, sink *relay.Sink, resumeFrom int64) {
 	announce := context.WithoutCancel(r.Context())
 	started := a.now()
-
-	resumeFrom, ok := relay.ParseRangeStart(r.Header.Get("Range"))
-	if !ok || (resumeFrom > 0 && t.Payload.Kind != transfer.KindFile) {
-		// A folder cannot be resumed into a new response: the archive was being
-		// built as it streamed, and that stream is gone.
-		src.Report(relay.Result{Err: errUnsatisfiableRange})
-		writeError(w, http.StatusRequestedRangeNotSatisfiable, codeBadRequest,
-			"only `Range: bytes=N-` on a single file can be resumed")
-		return
-	}
 
 	// The response shape follows from the declared Payload, so it is settled
 	// before a byte arrives.

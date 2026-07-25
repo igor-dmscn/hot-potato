@@ -420,7 +420,9 @@ func TestRecipientDisconnectsMidStream(t *testing.T) {
 	x := newHarness(t)
 	p := newPair(t, x)
 
-	parts := []part{pattern("big.bin", 8<<20)}
+	// Larger than any socket buffer that could swallow it whole, or there is no
+	// mid-relay disconnection to observe.
+	parts := []part{pattern("big.bin", 64<<20)}
 	id := p.offerAs(t, x, transfer.KindFile, "big.bin", sum(parts), 1)
 	p.accept(t, x, id)
 

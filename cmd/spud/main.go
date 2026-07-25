@@ -39,6 +39,7 @@ func main() {
 	signup := flag.Bool("signup", false, "create the account instead of logging in")
 	name := flag.String("name", "spud", "display name, when signing up")
 	streams := flag.Int("streams", 100, "number of idle Streams for `load`")
+	attempts := flag.Int("attempts", 3, "how many times to pick up an interrupted transfer (1 disables resume)")
 	timeout := flag.Duration("timeout", 0, "give up after this long (0 waits forever)")
 	flag.Usage = usage
 	flag.Parse()
@@ -59,7 +60,7 @@ func main() {
 	if *email == "" || *password == "" {
 		fail(fmt.Errorf("-email and -password are required (or SPUD_EMAIL / SPUD_PASSWORD)"))
 	}
-	c, err := dial(ctx, *base, *email, *password, *name, *signup)
+	c, err := dial(ctx, *base, *email, *password, *name, *signup, *attempts)
 	if err != nil {
 		fail(err)
 	}

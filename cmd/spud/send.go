@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,8 +12,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"hotpotato/internal/relay"
 )
 
 // payload is what will be sent, resolved from a path on disk.
@@ -89,7 +93,7 @@ func send(ctx context.Context, c *client, to, path string) error {
 	}
 
 	started := time.Now()
-	if err := c.upload(ctx, created.ID, p); err != nil {
+	if err := c.deliver(ctx, s, created.ID, p); err != nil {
 		return err
 	}
 
@@ -105,10 +109,70 @@ func send(ctx context.Context, c *client, to, path string) error {
 	return nil
 }
 
+// deliver uploads the Payload, and picks it up again from wherever the relay
+// stopped if the connection breaks.
+//
+// The Recipient never notices: its response stays open across the gap, and the
+// Owner holds the archive position — which is also why this cannot survive the
+// Owner dying (ADR 0008).
+func (c *client) deliver(ctx context.Context, s *stream, id string, p payload) error {
+	from := position{}
+	for attempt := 1; ; attempt++ {
+		err := c.upload(ctx, id, p, from)
+		if err == nil {
+			return nil
+		}
+		if attempt >= c.attempts {
+			return fmt.Errorf("gave up after %d attempt(s) at %s: %w", attempt, from, err)
+		}
+
+		var failed *uploadError
+		if errors.As(err, &failed) && failed.mismatch {
+			// The one failure a Sender can fix by itself: it asked to start in the
+			// wrong place and has been told the right one.
+			fmt.Printf("wrong resume position (%s); the relay is at %s\n", from, failed.expected)
+			from = failed.expected
+			continue
+		}
+		fmt.Printf("interrupted after %s: %v — waiting for the relay to invite us back\n", from, err)
+
+		next, err := awaitResume(ctx, s, id)
+		if err != nil {
+			return err
+		}
+		if next == from {
+			// Nothing moved, so retrying will fail the same way. Say so rather
+			// than spin.
+			return fmt.Errorf("stuck at %s: nothing was relayed on the last attempt", from)
+		}
+		from = next
+		fmt.Printf("resuming from %s (%s to go)\n", from, human(p.remaining(from)))
+	}
+}
+
+// remaining is how much of the Payload is still to be sent from a position.
+func (p payload) remaining(from position) int64 {
+	var left int64
+	for i, e := range p.entries {
+		switch {
+		case i < from.entry:
+		case i == from.entry:
+			left += max(0, e.size-from.offset)
+		default:
+			left += e.size
+		}
+	}
+	return left
+}
+
 // upload streams the Payload as multipart/form-data through an io.Pipe, so no
 // part of it is ever held in memory. The body function can be called twice,
 // because the request may be redirected to the Transfer's Owner.
-func (c *client) upload(ctx context.Context, id string, p payload) error {
+//
+// from says where to start. Entries the relay already has are skipped entirely,
+// and a half-delivered one is seeked into — a file on disk is seekable, so
+// resuming costs nothing but the syscall.
+func (c *client) upload(ctx context.Context, id string, p payload, from position) error {
 	// The boundary is fixed up front, not taken from whichever writer happens to
 	// be built first. A retried request declares the Content-Type of the attempt
 	// before it, so a fresh multipart.Writer with a fresh random boundary means
@@ -128,7 +192,10 @@ func (c *client) upload(ctx context.Context, id string, p payload) error {
 		go func() {
 			var err error
 			defer func() { pw.CloseWithError(err) }()
-			for _, e := range p.entries {
+			for i, e := range p.entries {
+				if i < from.entry {
+					continue // the relay already has this one
+				}
 				var w io.Writer
 				if w, err = mw.CreateFormFile("files", e.rel); err != nil {
 					return
@@ -136,6 +203,12 @@ func (c *client) upload(ctx context.Context, id string, p payload) error {
 				var f *os.File
 				if f, err = os.Open(e.path); err != nil {
 					return
+				}
+				if i == from.entry && from.offset > 0 {
+					if _, err = f.Seek(from.offset, io.SeekStart); err != nil {
+						f.Close()
+						return
+					}
 				}
 				_, err = io.Copy(w, f)
 				f.Close()
@@ -151,13 +224,27 @@ func (c *client) upload(ctx context.Context, id string, p payload) error {
 	// body is called again if the request is redirected to the Transfer's Owner:
 	// a fresh pipe, reading the files off disk a second time. That is the whole
 	// reason spud handles 307 itself instead of letting net/http do it.
-	res, err := c.do(ctx, "POST", c.base+"/d/"+id, body, contentType)
+	res, err := c.do(ctx, "POST", c.base+"/d/"+id, body, contentType, func(r *http.Request) {
+		// Always sent, not only when resuming: an explicit 0/0 is clearer than an
+		// absent header meaning the same thing.
+		r.Header.Set(relay.HeaderEntryIndex, strconv.Itoa(from.entry))
+		r.Header.Set(relay.HeaderEntryOffset, strconv.FormatInt(from.offset, 10))
+	})
 	if err != nil {
-		return err
+		// The request body broke before the server could answer, which is the
+		// usual shape of an interrupted upload.
+		return &uploadError{cause: err, expected: from}
 	}
 	defer res.Body.Close()
+
 	if res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("upload: %s", errorFrom(res))
+		return &uploadError{
+			status:   res.StatusCode,
+			message:  errorFrom(res),
+			expected: positionFrom(res),
+			mismatch: res.StatusCode == http.StatusConflict &&
+				res.Header.Get(relay.HeaderExpectedOffset) != "",
+		}
 	}
 	return nil
 }

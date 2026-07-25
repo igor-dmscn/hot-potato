@@ -24,14 +24,25 @@ import (
 
 // A whole server, in this process, with no external dependency: the in-memory
 // stores exist for exactly this.
-func server(t *testing.T) *httptest.Server {
+type serverOpts struct {
+	resumeWindow time.Duration
+	// wrap goes in front of the handler, so a test can break a request the way a
+	// dropped connection would.
+	wrap func(http.Handler) http.Handler
+}
+
+func server(t *testing.T, tweak ...func(*serverOpts)) *httptest.Server {
 	t.Helper()
-	srv, _ := serverWithRegistry(t)
+	srv, _ := serverWithRegistry(t, tweak...)
 	return srv
 }
 
-func serverWithRegistry(t *testing.T) (*httptest.Server, *sse.Registry) {
+func serverWithRegistry(t *testing.T, tweak ...func(*serverOpts)) (*httptest.Server, *sse.Registry) {
 	t.Helper()
+	var o serverOpts
+	for _, fn := range tweak {
+		fn(&o)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -95,10 +106,15 @@ func serverWithRegistry(t *testing.T) (*httptest.Server, *sse.Registry) {
 		RelayWriteDeadline: 10 * time.Second,
 		RelayBuffer:        64 << 10,
 		ProgressInterval:   20 * time.Millisecond,
+		ResumeWindow:       o.resumeWindow,
 		ReadModelTTL:       5 * time.Minute,
 	})
 
-	srv := httptest.NewServer(api)
+	var handler http.Handler = api
+	if o.wrap != nil {
+		handler = o.wrap(handler)
+	}
+	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	return srv, streams
 }
@@ -137,7 +153,7 @@ func TestWatchRoundTripsARealEvent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	ana, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true)
+	ana, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true, 3)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -157,7 +173,7 @@ func TestWatchRoundTripsARealEvent(t *testing.T) {
 
 	// Somebody else arriving is a real event, produced by the server rather than
 	// by the test.
-	bea, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true)
+	bea, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true, 3)
 	if err != nil {
 		t.Fatalf("dial bea: %v", err)
 	}
@@ -190,11 +206,11 @@ func TestSendADirectoryAndReceiveTheZip(t *testing.T) {
 	root, want := tree(t)
 	into := t.TempDir()
 
-	sender, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true)
+	sender, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true, 3)
 	if err != nil {
 		t.Fatalf("dial sender: %v", err)
 	}
-	recipient, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true)
+	recipient, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true, 3)
 	if err != nil {
 		t.Fatalf("dial recipient: %v", err)
 	}
@@ -220,12 +236,19 @@ func TestSendADirectoryAndReceiveTheZip(t *testing.T) {
 		t.Fatalf("recv: %v", err)
 	}
 
-	archive := filepath.Join(into, "docs.zip")
-	info, err := os.Stat(archive)
+	assertArchive(t, filepath.Join(into, "docs.zip"), want)
+}
+
+// assertArchive opens a zip and checks every entry, by name and by content. A
+// CRC mismatch surfaces from f.Open(), which is the only place a resumed entry's
+// integrity can be observed.
+func assertArchive(t *testing.T, path string, want map[string][]byte) {
+	t.Helper()
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("no archive on disk: %v", err)
 	}
-	zr, err := zip.OpenReader(archive)
+	zr, err := zip.OpenReader(path)
 	if err != nil {
 		t.Fatalf("the archive does not open: %v", err)
 	}
@@ -242,18 +265,18 @@ func TestSendADirectoryAndReceiveTheZip(t *testing.T) {
 		}
 		rc, err := f.Open()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("open %q: %v", f.Name, err)
 		}
 		got, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("read %q: %v", f.Name, err)
 		}
 		if !bytes.Equal(got, expected) {
 			t.Errorf("entry %q does not match what was sent", f.Name)
 		}
 	}
-	t.Logf("docs.zip is %d bytes for %d entries", info.Size(), len(zr.File))
+	t.Logf("%s is %d bytes for %d entries", filepath.Base(path), info.Size(), len(zr.File))
 }
 
 func TestSendASingleFile(t *testing.T) {
@@ -268,11 +291,11 @@ func TestSendASingleFile(t *testing.T) {
 	}
 	into := t.TempDir()
 
-	sender, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true)
+	sender, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recipient, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true)
+	recipient, err := dial(ctx, srv.URL, "bea@example.com", "hunter2hunter2", "bea", true, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,11 +352,11 @@ func TestHonours307WithAStreamingBody(t *testing.T) {
 
 	// Everything goes through the redirector: login, the stream, the offer and
 	// the upload. Cookies ignore ports, so one jar covers both hosts.
-	sender, err := dial(ctx, redirector.URL, "ana@example.com", "hunter2hunter2", "ana", true)
+	sender, err := dial(ctx, redirector.URL, "ana@example.com", "hunter2hunter2", "ana", true, 3)
 	if err != nil {
 		t.Fatalf("dial through the redirector: %v", err)
 	}
-	recipient, err := dial(ctx, redirector.URL, "bea@example.com", "hunter2hunter2", "bea", true)
+	recipient, err := dial(ctx, redirector.URL, "bea@example.com", "hunter2hunter2", "bea", true, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +398,7 @@ func TestLoadOpensAndHoldsStreams(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	ana, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true)
+	ana, err := dial(ctx, srv.URL, "ana@example.com", "hunter2hunter2", "ana", true, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
