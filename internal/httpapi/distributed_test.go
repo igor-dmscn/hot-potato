@@ -130,7 +130,7 @@ func newNode(t *testing.T, id string, rdb *redis.Client, natsURL, subject string
 		Options: presence.Options{
 			Grace: 50 * time.Millisecond,
 			Announce: func(name string, u presence.User) {
-				e, err := bus.NewEvent(name, nil, u)
+				e, err := bus.NewEvent(name, []string{bus.Everyone}, u)
 				if err == nil {
 					eventBus.Publish(ctx, e)
 				}

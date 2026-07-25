@@ -189,8 +189,12 @@ Scales by **affinity**: both halves must meet in one process.
 
 ### Event
 
-One control-plane fact. `bus.Event`: an ID, a name, an `Audience` of User IDs
-(empty means everyone), an opaque JSON payload, and a W3C `traceparent`.
+One control-plane fact. `bus.Event`: an ID, a name, an `Audience` of User IDs, an
+opaque JSON payload, and a W3C `traceparent`.
+
+Broadcast is the single element `bus.Everyone`, and an empty `Audience` reaches
+nobody. That way round because the opposite makes a forgotten argument a
+broadcast to every signed-in User, which nothing would report.
 
 Addressing is a *field*, not a subject, because Kafka has no per-key subscribe
 and the swap between implementations has to stay honest (ADR 0006).

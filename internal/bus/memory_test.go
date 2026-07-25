@@ -158,9 +158,12 @@ func TestForUser(t *testing.T) {
 		user     string
 		want     bool
 	}{
-		"empty audience is everyone": {nil, "u_1", true},
-		"addressed":                  {[]string{"u_1", "u_2"}, "u_2", true},
-		"not addressed":              {[]string{"u_1"}, "u_2", false},
+		// Empty reaches nobody on purpose: a forgotten audience must not become a
+		// broadcast to every signed-in User.
+		"empty audience is nobody": {nil, "u_1", false},
+		"everyone":                 {[]string{Everyone}, "u_1", true},
+		"addressed":                {[]string{"u_1", "u_2"}, "u_2", true},
+		"not addressed":            {[]string{"u_1"}, "u_2", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

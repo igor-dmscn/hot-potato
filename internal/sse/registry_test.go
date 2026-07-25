@@ -57,7 +57,7 @@ func TestDeliverReachesEveryTabOfOneUser(t *testing.T) {
 	tabA, _ := r.Open("u_1")
 	tabB, _ := r.Open("u_1")
 
-	r.Deliver(bus.Event{ID: 1, Name: "user.online", Data: []byte(`{}`)})
+	r.Deliver(bus.Event{ID: 1, Name: "user.online", Audience: []string{"u_1"}, Data: []byte(`{}`)})
 
 	for name, s := range map[string]*Stream{"tab A": tabA, "tab B": tabB} {
 		if got := drain(t, s); len(got) != 1 || got[0].Name != "user.online" {
@@ -92,7 +92,7 @@ func TestDeliverDropsAnOverflowingStreamWithoutBlocking(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := range 10 {
-			r.Deliver(bus.Event{ID: uint64(i + 1), Name: "flood", Data: []byte(`{}`)})
+			r.Deliver(bus.Event{ID: uint64(i + 1), Name: "flood", Audience: []string{bus.Everyone}, Data: []byte(`{}`)})
 			<-quick.ch // keep this one drained
 		}
 		close(done)

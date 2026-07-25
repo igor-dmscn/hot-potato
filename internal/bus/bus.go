@@ -8,7 +8,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
+
+// Everyone is the audience of an event every signed-in User should receive.
+//
+// Broadcast is spelled out rather than being what an empty Audience means: with
+// empty meaning everyone, a new event type published without an audience — a
+// forgotten argument, a refactor that drops one — reaches every signed-in User,
+// and neither the compiler nor a test would say so. An empty Audience now reaches
+// nobody, which is the harmless direction to fail in.
+//
+// A User ID cannot collide with it: they are minted with a "u_" prefix.
+const Everyone = "*"
 
 // Event is one control-plane fact.
 //
@@ -21,8 +33,9 @@ type Event struct {
 	ID uint64 `json:"id"`
 	// Name is the event name, e.g. "user.online" or "transfer.progress".
 	Name string `json:"name"`
-	// Audience is the set of user IDs that should receive this event. Empty
-	// means everyone. Every instance receives every event and filters locally.
+	// Audience is the set of user IDs that should receive this event, or the
+	// single element Everyone. Empty reaches nobody. Every instance receives every
+	// event and filters locally.
 	Audience []string `json:"audience,omitempty"`
 	// Data is the event's JSON payload, already marshalled.
 	Data json.RawMessage `json:"data"`
@@ -32,15 +45,7 @@ type Event struct {
 
 // ForUser reports whether e should reach userID.
 func (e Event) ForUser(userID string) bool {
-	if len(e.Audience) == 0 {
-		return true
-	}
-	for _, id := range e.Audience {
-		if id == userID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(e.Audience, Everyone) || slices.Contains(e.Audience, userID)
 }
 
 // NewEvent marshals payload into an Event. The ID is assigned by the bus at

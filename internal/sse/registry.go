@@ -119,7 +119,8 @@ func (r *Registry) Count() int {
 // SSE handler (Go issue #41344). Each Stream's pump flushes what is queued —
 // including the announcement — before its handler returns.
 func (r *Registry) Drain(_ context.Context) {
-	e, err := bus.NewEvent(EventDraining, nil, struct{}{})
+	// Every Stream on this instance is about to close, so every Stream is told.
+	e, err := bus.NewEvent(EventDraining, []string{bus.Everyone}, struct{}{})
 	if err != nil {
 		slog.Error("build draining event", "err", err)
 	}

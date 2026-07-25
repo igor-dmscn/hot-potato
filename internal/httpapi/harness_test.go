@@ -98,7 +98,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	p := presence.NewMemory(presence.Options{
 		Grace: o.grace,
 		Announce: func(name string, u presence.User) {
-			e, err := bus.NewEvent(name, nil, u)
+			e, err := bus.NewEvent(name, []string{bus.Everyone}, u)
 			if err != nil {
 				return
 			}

@@ -70,7 +70,7 @@ func serverWithRegistry(t *testing.T, tweak ...func(*serverOpts)) (*httptest.Ser
 	p := presence.NewMemory(presence.Options{
 		Grace: 50 * time.Millisecond,
 		Announce: func(name string, u presence.User) {
-			if e, err := bus.NewEvent(name, nil, u); err == nil {
+			if e, err := bus.NewEvent(name, []string{bus.Everyone}, u); err == nil {
 				eventBus.Publish(ctx, e)
 			}
 		},

@@ -120,8 +120,11 @@ func run() error {
 		{Name: "postgres", Ping: store.Ping},
 		{Name: "bus", Ping: func(c context.Context) error {
 			// The bus has no ping, so readiness is "a publish works" — which is
-			// the thing that has to work.
-			e, err := bus.NewEvent("readyz", []string{cfg.InstanceID}, nil)
+			// the thing that has to work. No audience: the probe has to traverse
+			// the bus, not arrive anywhere. That used to be spelled as this
+			// instance's ID in a field of User IDs, which only reached nobody
+			// because the two namespaces happen not to collide.
+			e, err := bus.NewEvent("readyz", nil, nil)
 			if err != nil {
 				return err
 			}
@@ -142,7 +145,8 @@ func run() error {
 	}()
 
 	announce := func(name string, u presence.User) {
-		e, err := bus.NewEvent(name, nil, u)
+		// Presence is public within the app — it is the online list.
+		e, err := bus.NewEvent(name, []string{bus.Everyone}, u)
 		if err != nil {
 			slog.Error("build presence event", "event", name, "err", err)
 			return
