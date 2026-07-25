@@ -96,8 +96,8 @@ func TestDrainingIsNotReadyButStaysHealthy(t *testing.T) {
 	}
 }
 
-// The series DESIGN §10 asks for, and the one that matters most: relay bytes,
-// which is how phase 12 proves the server saw none.
+// Every series the protocol reference lists, and the one that matters most:
+// relay bytes, which is how phase 12 proves the server saw none.
 func TestMetricsExposesTheSeries(t *testing.T) {
 	t.Parallel()
 	x := newHarness(t)

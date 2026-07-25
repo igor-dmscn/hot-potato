@@ -37,8 +37,8 @@ role.**
 
 ### One key per User is not enough
 
-This record, and DESIGN §9, describe Presence as one key per online User with the
-instance recorded in the value:
+This record, and the design it belongs to, describe Presence as one key per
+online User with the instance recorded in the value:
 
 ```
 SET presence:<userID> {name,instance} EX 30

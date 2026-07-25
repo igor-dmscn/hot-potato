@@ -46,9 +46,9 @@ func (s *Service) Require(next http.Handler) http.Handler {
 	})
 }
 
-// unauthorized writes DESIGN §6's error envelope. It is spelled out here
-// rather than borrowed from httpapi because httpapi imports this package, and
-// 401 is the only status this package ever produces.
+// unauthorized writes the error envelope (docs/protocol.md). It is spelled out
+// here rather than borrowed from httpapi because httpapi imports this package,
+// and 401 is the only status this package ever produces.
 func unauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)

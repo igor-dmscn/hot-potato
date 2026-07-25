@@ -12,8 +12,8 @@ import (
 	"hotpotato/internal/transfer"
 )
 
-// DefaultBuffer is DESIGN §9's relay copy buffer. It is, per Transfer, the
-// entire memory cost of the data plane.
+// DefaultBuffer is the relay copy buffer. It is, per Transfer, the entire
+// memory cost of the data plane.
 const DefaultBuffer = 64 << 10
 
 var (

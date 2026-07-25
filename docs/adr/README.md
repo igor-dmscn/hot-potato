@@ -1,7 +1,7 @@
 # Decision records
 
-Copied from the design repo (`../learning-sse-file-transfer/docs/adr/`) so this
-repo can be read on its own.
+The decision records this implementation was built against, kept here so the
+repo reads on its own.
 
 **The original text of each record is unchanged.** Everything the implementation
 found is in an `## Amendment` section at the end, dated, with a status line. That
@@ -42,8 +42,9 @@ Worth reading the amendments to these even if you know the design:
 
 | | |
 |---|---|
+| [`../protocol.md`](../protocol.md) | the wire contract these decisions produced |
 | [`../measurements.md`](../measurements.md) | all five measurements and how to repeat them |
 | [`../bus-comparison.md`](../bus-comparison.md) | four buses, measured, with the reasoning |
 | [`../load-test.md`](../load-test.md) | ten thousand Streams, and the drain |
-| [`../webrtc.md`](../webrtc.md) | on the `webrtc` branch: what bypassing the server costs |
+| [`webrtc.md`](https://github.com/igor-dmscn/hot-potato-claude-impl/blob/webrtc/docs/webrtc.md) | what bypassing the server costs — on the `webrtc` branch |
 | [`../flows.md`](../flows.md) | the decisions above, drawn |

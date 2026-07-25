@@ -2,9 +2,11 @@
 
 A Go backend that streams a file or folder from one signed-in user to another.
 Payload bytes pass through the server as a live stream and are never written to
-disk; every state change is pushed to browsers over SSE. Full orientation in
-[`README.md`](README.md), vocabulary in [`docs/glossary.md`](docs/glossary.md),
-flows in [`docs/flows.md`](docs/flows.md).
+disk; every state change is pushed to browsers over SSE. Orientation in
+[`README.md`](README.md), the wire contract in
+[`docs/protocol.md`](docs/protocol.md), vocabulary in
+[`docs/glossary.md`](docs/glossary.md), flows in
+[`docs/flows.md`](docs/flows.md).
 
 `main` is SSE-only. Phase 12 (WebRTC) lives on the `webrtc` branch and must stay
 there.
@@ -109,13 +111,14 @@ internal/webui/     the harness, embedded; files in public/
 
 ## When changing things
 
-- The spec and plan are in `../learning-sse-file-transfer` (`DESIGN.md`,
-  `IMPLEMENTATION-PLAN.md`). The decision records live in [`docs/adr/`](docs/adr/),
-  copied verbatim with an `## Amendment` section on each for what the build found —
-  **read 0004, 0005, 0006 and 0008's amendments before touching the relay, presence,
-  the bus or resume.** If a change contradicts a record, amend the record in the
-  same commit rather than quietly diverging; do not edit the original text above
-  the amendment line.
+- The wire contract is [`docs/protocol.md`](docs/protocol.md): endpoints, events,
+  error codes, limits. Code comments cite it by name. Change one without the other
+  and the next reader believes the wrong one.
+- The decision records are in [`docs/adr/`](docs/adr/), each with an `## Amendment`
+  section for what the build found — **read 0004, 0005, 0006 and 0008's amendments
+  before touching the relay, presence, the bus or resume.** If a change contradicts
+  a record, amend the record in the same commit rather than quietly diverging, and
+  do not edit the original text above the amendment line.
 - One commit per coherent change, with a message that says *why* and names what
   the tests found. `git log` here is meant to be readable.
 - Measurements in `docs/` are real numbers from a real run. If you change

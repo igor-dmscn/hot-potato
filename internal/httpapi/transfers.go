@@ -18,7 +18,7 @@ import (
 // maxStreamIDLength bounds a value the client supplies and the server echoes.
 const maxStreamIDLength = 64
 
-// The control plane's Transfer events, from DESIGN §7.
+// The control plane's Transfer events (docs/protocol.md).
 const (
 	EventTransferCreated   = "transfer.created"
 	EventTransferOffered   = "transfer.offered"
@@ -174,9 +174,9 @@ func (a *api) cancelTransfer(w http.ResponseWriter, r *http.Request) {
 
 // Reap expires unanswered offers on a ticker and tells both parties.
 //
-// DESIGN §7 has no transfer.expired event: the outcome travels as
-// transfer.failed with reason offer_expired, which is also what a client that
-// only handles failures needs to see.
+// There is no transfer.expired event: the outcome travels as transfer.failed
+// with reason offer_expired, which is also what a client that only handles
+// failures needs to see.
 func (a *api) Reap(ctx context.Context, every, keepTerminal time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
@@ -256,7 +256,7 @@ func (a *api) emit(ctx context.Context, name string, audience []string, payload 
 // parties is the audience for anything that concerns both ends.
 func parties(t transfer.Transfer) []string { return []string{t.Sender, t.Recipient} }
 
-// transferError maps the domain's errors onto DESIGN §6's envelope.
+// transferError maps the domain's errors onto the error envelope.
 //
 // An unknown ID is 404 and someone else's Transfer is 403 — the ID is 64 bits
 // of randomness, so there is nothing to enumerate and no reason to lie about

@@ -7,12 +7,10 @@ over Server-Sent Events.
 
 The name is the invariant: the server cannot hold what it is handed.
 
-This is an implementation of the design and plan in
-`../learning-sse-file-transfer` — `DESIGN.md` is the spec and
-`IMPLEMENTATION-PLAN.md` is the build. The decision records are copied into
-[`docs/adr/`](docs/adr/) so this repo reads on its own, with the original text
-intact and an `## Amendment` section on each recording what the build confirmed,
-corrected or measured.
+Built from a design worked out before any code, one phase per commit. The wire
+contract is in [`docs/protocol.md`](docs/protocol.md) and the eight decision
+records are in [`docs/adr/`](docs/adr/), each with an `## Amendment` section
+recording what the build confirmed, corrected or measured.
 
 ## Running it
 
@@ -117,7 +115,7 @@ Each commit is one phase of the plan.
 | 9 | `spud` | `cmd/spud` |
 | 10 | Ops: readyz, metrics, tracing, load test | [`docs/load-test.md`](docs/load-test.md) |
 | 11 | Resume, both sides | `internal/relay/resume.go`, `cmd/spud/resume.go` |
-| 12 | WebRTC finale | branch `webrtc`, [`docs/webrtc.md`](docs/webrtc.md) |
+| 12 | WebRTC finale | branch `webrtc`, [`docs/webrtc.md`](https://github.com/igor-dmscn/hot-potato-claude-impl/blob/webrtc/docs/webrtc.md) |
 
 Phase 12 lives on its own branch. `main` is SSE-only, which is what the project
 set out to build.
@@ -144,13 +142,14 @@ Five things were measured rather than asserted.
 
 | | |
 |---|---|
+| [`docs/protocol.md`](docs/protocol.md) | the wire contract: endpoints, events, errors, limits |
 | [`docs/glossary.md`](docs/glossary.md) | every noun, and the Go type that embodies it |
 | [`docs/flows.md`](docs/flows.md) | how a Transfer happens, drawn |
 | [`docs/cli.md`](docs/cli.md) | `spud`: every command and flag, with output |
 | [`docs/measurements.md`](docs/measurements.md) | all five measurements and how to repeat them |
 | [`docs/bus-comparison.md`](docs/bus-comparison.md) | four buses, measured, and three findings |
 | [`docs/load-test.md`](docs/load-test.md) | ten thousand Streams, and the drain |
-| [`docs/webrtc.md`](docs/webrtc.md) | on the `webrtc` branch: what bypassing the server costs |
+| [`docs/webrtc.md`](https://github.com/igor-dmscn/hot-potato-claude-impl/blob/webrtc/docs/webrtc.md) | what bypassing the server costs — **on the `webrtc` branch** |
 | [`docs/adr/`](docs/adr/) | the eight decision records, with what the build found appended |
 | [`CLAUDE.md`](CLAUDE.md) | the invariants and conventions, for anyone editing this |
 

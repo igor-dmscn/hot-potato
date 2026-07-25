@@ -14,7 +14,7 @@ const EventDraining = "server.draining"
 
 type Options struct {
 	// Buffer is how many events a Stream may fall behind by before it is
-	// dropped. DESIGN §9 says 32.
+	// dropped. The default is 32.
 	Buffer int
 }
 

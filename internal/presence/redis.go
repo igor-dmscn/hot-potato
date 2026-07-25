@@ -32,11 +32,12 @@ type RedisOptions struct {
 
 // Redis is presence across instances: one key per (User, instance), with a TTL.
 //
-// DESIGN §9 describes one key per User carrying the instance as a value. That
+// The design described one key per User carrying the instance as a value. That
 // breaks for a User with tabs on two instances: the second SET overwrites the
 // first, and whichever instance loses its last Stream first deletes a claim
 // that is still true. Keying by both, and deriving a User's presence from
-// whether *any* claim survives, is the same idea with that hole closed.
+// whether *any* claim survives, is the same idea with that hole closed — see
+// the amendment on ADR 0005.
 type Redis struct {
 	client *redis.Client
 	o      RedisOptions
