@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -48,9 +49,13 @@ func (a *api) reportProgress(ctx context.Context, t transfer.Transfer, counted *
 				}
 				// The rate comes from the delta since the previous *published*
 				// tick, so a suppressed gap does not read as a speed-up.
-				var rate int64
+				//
+				// Floored at 1: integer division truncates, so a small delta over
+				// a long gap — a starved ticker on a busy machine — would report
+				// zero bytes per second while bytes were demonstrably moving.
+				rate := int64(1)
 				if elapsed := tick.Sub(lastAt).Seconds(); elapsed > 0 {
-					rate = int64(float64(n-last) / elapsed)
+					rate = max(1, int64(math.Round(float64(n-last)/elapsed)))
 				}
 				last, lastAt = n, tick
 
