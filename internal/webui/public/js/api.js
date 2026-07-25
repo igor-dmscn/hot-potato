@@ -94,6 +94,13 @@ export async function sendPayload(id, files) {
 }
 
 /**
+ * POST /api/transfers/{id}/signal — the WebRTC data plane's only visit to the
+ * server. The signal is opaque to it; the outcome is the peers' own word.
+ */
+export const signalTransfer = (id, signal, outcome) =>
+  send("POST", `/api/transfers/${encodeURIComponent(id)}/signal`, { signal, outcome });
+
+/**
  * Start the download. A plain navigation is the right tool: the request parks
  * until the Sender attaches, then arrives with Content-Disposition and the
  * browser saves it — no blob, no memory held in the page.
