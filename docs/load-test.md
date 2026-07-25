@@ -86,23 +86,21 @@ on its own — so without the drain hook this number is not "slow", it is
 and closes them all *before* `Shutdown` is called; each pump flushes what is
 queued and its handler returns.
 
-The client counted **8,594** events across its 10,000 Streams during the drain.
-That is not 10,000 because a Stream whose socket closes before the client has
-read the frame simply loses it — which is the whole reason `retry: 3000` and
-snapshot-on-connect exist. The Streams that missed the announcement reconnect on
-the browser's own schedule and get a fresh snapshot; nothing is left waiting for
-an explanation it will never receive.
+The client counted between **8,594 and 10,001** events across its 10,000 Streams
+during the drain, depending on the run. It is not always 10,000 because a Stream
+whose socket closes before the client has read the frame simply loses it — which
+is the whole reason `retry: 3000` and snapshot-on-connect exist. The Streams that
+missed the announcement reconnect on the browser's own schedule and get a fresh
+snapshot; nothing is left waiting for an explanation it will never receive.
 
 ## Reproducing it
 
 ```sh
-docker compose up -d postgres
-go build -o server ./cmd/server && go build -o spud ./cmd/spud
-./server &
-./spud -base http://localhost:8080 -email load@example.com -password hunter2hunter2 \
-       -name loadbot -signup -streams 10000 load
-
-curl -s localhost:8080/metrics | grep -E '^(go_goroutines|process_open_fds|process_resident_memory_bytes|hp_streams_active) '
+make up
+STREAMS=10000 make measure-load
 ```
 
-Then `kill -TERM` the server and time it.
+`scripts/load.sh` is what that runs: it samples `/metrics` at baseline and under
+load, then sends SIGTERM and times the exit. Raise `ulimit -n` first — the script
+refuses to start rather than let you misread `accept: too many open files` as the
+server's fault.

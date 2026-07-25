@@ -8,23 +8,29 @@ over Server-Sent Events.
 The name is the invariant: the server cannot hold what it is handed.
 
 This is an implementation of the design and plan in
-[`../learning-sse-file-transfer`](../learning-sse-file-transfer) —
-`DESIGN.md` is the spec, `IMPLEMENTATION-PLAN.md` is the build, and `docs/adr/`
-there is the reasoning.
+`../learning-sse-file-transfer` — `DESIGN.md` is the spec and
+`IMPLEMENTATION-PLAN.md` is the build. The decision records are copied into
+[`docs/adr/`](docs/adr/) so this repo reads on its own, with the original text
+intact and an `## Amendment` section on each recording what the build confirmed,
+corrected or measured.
 
 ## Running it
 
+`make` on its own lists every target.
+
 ```sh
-docker compose up -d postgres
-go run ./cmd/server
+make up          # Postgres
+make run         # one instance on :8080
 # open http://localhost:8080 in two browsers, sign up as two users
+
+make demo        # a whole transfer, two spuds, no browser
 ```
 
 Two instances behind one entry point, which is where the design gets
 interesting:
 
 ```sh
-docker compose up            # postgres, redis, nats, inst-a, inst-b, caddy
+make up-cluster  # postgres, redis, nats, inst-a, inst-b, caddy
 # http://localhost:8080  round-robins between them
 # http://localhost:8081  inst-a directly
 # http://localhost:8082  inst-b directly
@@ -36,15 +42,12 @@ other one are answered `307` to the owner.
 ## Testing it
 
 ```sh
-go test ./...                # everything that needs no broker
-go test -short ./...         # skips the 1 GB relay
+make test           # everything that needs no broker
+make test-short     # skips the 1 GB relay
+make test-race      # under the race detector
 
-docker compose up -d postgres redis nats kafka
-export HP_TEST_DATABASE_URL=postgres://hotpotato:hotpotato@localhost:5432/hotpotato
-export HP_TEST_REDIS_URL=redis://localhost:6379/1
-export HP_TEST_NATS_URL=nats://localhost:4222
-export HP_TEST_KAFKA_BROKERS=localhost:29092
-go test ./...                # plus Postgres, the distributed suite, all four buses
+make up-brokers     # Postgres, Redis, NATS, Kafka
+make test-all       # plus the Postgres, distributed and four-bus suites
 ```
 
 Every integration suite skips itself when its dependency is not configured, so a
@@ -135,15 +138,21 @@ Five things were measured rather than asserted.
 - **Cross-instance transfer** through two containers behind Caddy: 5 MB with
   matching checksums, the accept redirected to the owner and its body replayed.
 
+`make measure` runs all of them.
+
 ## Documents
 
 | | |
 |---|---|
+| [`docs/glossary.md`](docs/glossary.md) | every noun, and the Go type that embodies it |
+| [`docs/flows.md`](docs/flows.md) | how a Transfer happens, drawn |
 | [`docs/cli.md`](docs/cli.md) | `spud`: every command and flag, with output |
 | [`docs/measurements.md`](docs/measurements.md) | all five measurements and how to repeat them |
 | [`docs/bus-comparison.md`](docs/bus-comparison.md) | four buses, measured, and three findings |
 | [`docs/load-test.md`](docs/load-test.md) | ten thousand Streams, and the drain |
 | [`docs/webrtc.md`](docs/webrtc.md) | on the `webrtc` branch: what bypassing the server costs |
+| [`docs/adr/`](docs/adr/) | the eight decision records, with what the build found appended |
+| [`CLAUDE.md`](CLAUDE.md) | the invariants and conventions, for anyone editing this |
 
 ## Configuration
 
