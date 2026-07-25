@@ -13,8 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"hotpotato/internal/auth"
 	"hotpotato/internal/config"
 	"hotpotato/internal/httpapi"
+	"hotpotato/internal/postgres"
 	"hotpotato/internal/webui"
 )
 
@@ -38,12 +40,36 @@ func run() error {
 	// variable someone thought they set. Log the resolved config once.
 	slog.Info("boot", "config", cfg, "pid", os.Getpid())
 
+	// A boot budget: a database that is not there should fail the process, not
+	// hang it. Everything after this point is either wired or fatal.
+	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelBoot()
+
+	store, err := postgres.Open(bootCtx, cfg.DatabaseURL.Reveal())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if err := store.Migrate(bootCtx); err != nil {
+		return err
+	}
+
+	authSvc := auth.New(auth.Options{
+		Users:              store.Users(),
+		Sessions:           store.Sessions(),
+		SessionTTL:         cfg.SessionTTL,
+		LoginMaxFailures:   cfg.LoginMaxFailures,
+		LoginFailureWindow: cfg.LoginFailureWindow,
+	})
+
 	var draining atomic.Bool
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
-			WebUI:    webui.Handler(),
-			Draining: &draining,
+			Auth:          authSvc,
+			WebUI:         webui.Handler(),
+			Draining:      &draining,
+			SessionMaxAge: int(cfg.SessionTTL.Seconds()),
 		}),
 		// WriteTimeout is a deadline on the entire response, so any non-zero
 		// value kills an SSE stream and a multi-gigabyte relay on a schedule.

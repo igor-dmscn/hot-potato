@@ -1,7 +1,10 @@
-// Entry point: owns state and timing, delegates rendering to ui.js.
+// Entry point: owns timing and wiring, delegates state to store.js and
+// rendering to ui/*.js.
 
-import { health } from "./api.js";
-import { paintStatus, paintPhases, paintInstance } from "./ui.js";
+import * as api from "./api.js";
+import * as store from "./store.js";
+import { paintStatus, paintPhases, paintInstance } from "./ui/status.js";
+import { mountAuth, mountSession, paintAuth } from "./ui/auth.js";
 
 const PHASES = [
   "Skeleton and shutdown",
@@ -19,17 +22,36 @@ const PHASES = [
   "WebRTC",
 ];
 
-const CURRENT_PHASE = 0;
+const CURRENT_PHASE = 1;
 const POLL_MS = 3000;
 
-const statusCard = document.querySelector("[data-status]");
+const el = {
+  status: document.querySelector("[data-status]"),
+  phases: document.querySelector("[data-phases]"),
+  instance: document.querySelector("[data-instance]"),
+  auth: {
+    section: document.querySelector("[data-auth]"),
+    strip: document.querySelector("[data-session]"),
+    whoami: document.querySelector("[data-whoami]"),
+  },
+};
+
+mountAuth(el.auth.section);
+mountSession(el.auth.strip);
+paintPhases(el.phases, PHASES, CURRENT_PHASE);
+
+store.subscribe((state) => {
+  paintInstance(el.instance, state.instance);
+  paintAuth(el.auth, state.self);
+  paintStatus(el.status, state.health);
+});
 
 async function poll() {
-  paintStatus(statusCard, await health());
+  store.set({ health: await api.health() });
 }
 
-paintInstance(document.querySelector("[data-instance]"));
-paintPhases(document.querySelector("[data-phases]"), PHASES, CURRENT_PHASE);
+// Who am I? A session cookie survives a reload, so ask before drawing.
+store.set({ self: await api.me() });
 poll();
 
 // Don't poll a tab nobody is looking at; catch up the moment it returns.

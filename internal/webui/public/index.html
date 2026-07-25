@@ -1,5 +1,6 @@
-<!-- Hot Potato harness. Not the product: a disposable UI that proves the backend works.
-     No build step — Tailwind is the vendored browser build, JS is plain ES modules. -->
+<!-- Hot Potato harness. Not the product: a disposable UI that proves the backend
+     works. No build step — Tailwind is the vendored browser build, JS is plain
+     ES modules. -->
 <meta charset="utf-8">
 <title>Hot Potato</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,47 +22,91 @@
           files that never touch the disk
         </p>
       </div>
-      <p class="font-mono text-xs text-stone-500 dark:text-stone-400">
+      <div class="flex items-baseline gap-4 font-mono text-xs text-stone-500 dark:text-stone-400">
         <span data-instance>—</span>
-      </p>
+        <span data-session class="hidden items-baseline gap-2 sm:flex">
+          <span data-whoami class="text-stone-900 dark:text-stone-100"></span>
+          <button data-signout class="underline decoration-dotted hover:text-stone-900 dark:hover:text-stone-100">
+            sign out
+          </button>
+        </span>
+      </div>
     </div>
   </header>
 
   <main class="mx-auto max-w-5xl px-6 py-10">
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
 
-      <section>
-        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-          Server
-        </h2>
+      <div class="space-y-10">
 
-        <div data-status class="mt-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
-          <div class="flex items-center gap-3">
-            <span data-dot class="size-2.5 rounded-full bg-stone-300 dark:bg-stone-700"></span>
-            <p data-verdict class="text-xl font-medium tracking-tight">Checking…</p>
+        <!-- Signed out: the only thing worth showing. -->
+        <section data-auth class="hidden">
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Identity
+          </h2>
+          <form data-authform class="mt-4 max-w-sm space-y-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+            <div class="flex gap-1 font-mono text-xs">
+              <button type="button" data-mode="login"
+                class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign in</button>
+              <button type="button" data-mode="signup"
+                class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign up</button>
+            </div>
+
+            <label class="block">
+              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Email</span>
+              <input name="email" type="email" required autocomplete="email"
+                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+            </label>
+
+            <label data-displayname class="block">
+              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Display name</span>
+              <input name="displayName" type="text" autocomplete="nickname"
+                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+            </label>
+
+            <label class="block">
+              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Password</span>
+              <input name="password" type="password" required minlength="8" autocomplete="current-password"
+                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+            </label>
+
+            <p data-autherror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
+
+            <button type="submit"
+              class="w-full rounded bg-stone-900 px-3 py-2 text-sm font-medium text-stone-50 hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
+              <span data-submitlabel>Sign in</span>
+            </button>
+          </form>
+        </section>
+
+        <section>
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Server
+          </h2>
+
+          <div data-status class="mt-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+            <div class="flex items-center gap-3">
+              <span data-dot class="size-2.5 rounded-full bg-stone-300 dark:bg-stone-700"></span>
+              <p data-verdict class="text-xl font-medium tracking-tight">Checking…</p>
+            </div>
+            <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm sm:grid-cols-3">
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Endpoint</dt>
+                <dd class="mt-1">/healthz</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Latency</dt>
+                <dd data-latency class="mt-1">—</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Last check</dt>
+                <dd data-checked class="mt-1">—</dd>
+              </div>
+            </dl>
           </div>
-          <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm sm:grid-cols-3">
-            <div>
-              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Endpoint</dt>
-              <dd class="mt-1">/healthz</dd>
-            </div>
-            <div>
-              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Latency</dt>
-              <dd data-latency class="mt-1">—</dd>
-            </div>
-            <div>
-              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Last check</dt>
-              <dd data-checked class="mt-1">—</dd>
-            </div>
-          </dl>
-        </div>
+        </section>
 
-        <p class="mt-4 max-w-prose text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-          This page is served straight out of the binary with <code class="font-mono text-xs">embed.FS</code>,
-          so if you are reading it, static serving works. It will grow one section per phase — the
-          online list next, then transfers, then progress.
-        </p>
-      </section>
+      </div>
 
       <aside>
         <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">

@@ -8,21 +8,16 @@ const DOT = {
 
 /** Paint the server status card from an api.health() result. */
 export function paintStatus(root, result) {
-  const dot = root.querySelector("[data-dot]");
-  const verdict = root.querySelector("[data-verdict]");
-  const latency = root.querySelector("[data-latency]");
-  const checked = root.querySelector("[data-checked]");
-
   const state = !result.reachable ? "down" : result.ok ? "up" : "down";
 
-  dot.className = `size-2.5 rounded-full ${DOT[state]}`;
-  verdict.textContent = !result.reachable
+  root.querySelector("[data-dot]").className = `size-2.5 rounded-full ${DOT[state]}`;
+  root.querySelector("[data-verdict]").textContent = !result.reachable
     ? "Unreachable"
     : result.ok
       ? "Healthy"
       : `Unhealthy (${result.status})`;
-  latency.textContent = result.reachable ? `${result.ms} ms` : "—";
-  checked.textContent = new Date().toLocaleTimeString();
+  root.querySelector("[data-latency]").textContent = result.reachable ? `${result.ms} ms` : "—";
+  root.querySelector("[data-checked]").textContent = new Date().toLocaleTimeString();
 }
 
 /** Render the roadmap, marking which phase is live. */
@@ -55,7 +50,7 @@ export function paintPhases(root, phases, currentIndex) {
   );
 }
 
-/** Show which origin this tab is talking to. Becomes the real instance ID in phase 7. */
-export function paintInstance(el) {
-  el.textContent = location.host;
+/** Show which origin this tab is talking to. Becomes the instance ID in phase 7. */
+export function paintInstance(el, instance) {
+  el.textContent = instance;
 }

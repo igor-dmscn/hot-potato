@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,7 +26,26 @@ type Config struct {
 	InstanceID    string        // HP_INSTANCE_ID — the prefix of every Transfer ID it owns
 	LogLevel      slog.Level    // HP_LOG_LEVEL
 	ShutdownGrace time.Duration // HP_SHUTDOWN_GRACE
+
+	DatabaseURL        Secret        // HP_DATABASE_URL
+	SessionTTL         time.Duration // HP_SESSION_TTL
+	LoginMaxFailures   int           // HP_LOGIN_MAX_FAILURES, per IP+email
+	LoginFailureWindow time.Duration // HP_LOGIN_FAILURE_WINDOW
 }
+
+// Secret is a configuration value that must never reach a log or a response.
+//
+// String and LogValue cover fmt and slog's text handler. MarshalJSON is the
+// one that actually matters here: slog's JSON handler marshals a struct field
+// with encoding/json, which consults neither of the other two.
+type Secret string
+
+const redacted = "[redacted]"
+
+func (Secret) String() string               { return redacted }
+func (Secret) LogValue() slog.Value         { return slog.StringValue(redacted) }
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"` + redacted + `"`), nil }
+func (s Secret) Reveal() string             { return string(s) }
 
 // Load reads configuration through lookup, which has os.LookupEnv's signature.
 // Injecting it instead of reading the process environment keeps these tests
@@ -39,6 +59,11 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		InstanceID:    l.instanceID("HP_INSTANCE_ID", "inst-local"),
 		LogLevel:      l.level("HP_LOG_LEVEL", slog.LevelInfo),
 		ShutdownGrace: l.duration("HP_SHUTDOWN_GRACE", 15*time.Second),
+
+		DatabaseURL:        Secret(l.str("HP_DATABASE_URL", "postgres://hotpotato:hotpotato@localhost:5432/hotpotato")),
+		SessionTTL:         l.duration("HP_SESSION_TTL", 7*24*time.Hour),
+		LoginMaxFailures:   l.count("HP_LOGIN_MAX_FAILURES", 10),
+		LoginFailureWindow: l.duration("HP_LOGIN_FAILURE_WINDOW", 15*time.Minute),
 	}
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))
@@ -91,6 +116,24 @@ func (l *loader) duration(key string, def time.Duration) time.Duration {
 		l.reject(key, v, "must be positive")
 	default:
 		return d
+	}
+	return def
+}
+
+// count parses a positive integer. A zero limit is a typo, not a policy.
+func (l *loader) count(key string, def int) int {
+	v, ok := l.present(key)
+	if !ok {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	switch {
+	case err != nil:
+		l.reject(key, v, "is not a number")
+	case n <= 0:
+		l.reject(key, v, "must be positive")
+	default:
+		return n
 	}
 	return def
 }
