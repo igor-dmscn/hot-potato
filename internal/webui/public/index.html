@@ -111,6 +111,19 @@
             </div>
 
             <p data-chosen class="font-mono text-xs text-stone-500 dark:text-stone-400">nothing picked</p>
+
+            <!-- Phase 12. The Recipient's choice decides the data plane: this tab
+                 only has to agree with itself. -->
+            <label class="flex items-start gap-2 text-sm">
+              <input data-peer type="checkbox" class="mt-0.5">
+              <span>
+                receive peer-to-peer (WebRTC)
+                <span class="block font-mono text-xs text-stone-500 dark:text-stone-400">
+                  bytes bypass the server entirely — no server-side progress, no size
+                  enforcement, and no traversal without a TURN relay
+                </span>
+              </span>
+            </label>
             <p data-senderror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
 
             <button type="submit"

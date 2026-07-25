@@ -165,6 +165,10 @@ func New(o Options) *Server {
 		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.denyTransfer)))))
 	mux.Handle("POST /api/transfers/{id}/cancel",
 		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.cancelTransfer)))))
+	// The WebRTC data plane's only server-side surface. Redirected to the Owner
+	// like everything else, because it mutates the Owner's state.
+	mux.Handle("POST /api/transfers/{id}/signal",
+		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.signal)))))
 
 	// The data plane. No requireJSON here: these are multipart and a download,
 	// and a cross-site form *can* send multipart — SameSite=Lax on the session
