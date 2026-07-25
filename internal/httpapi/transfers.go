@@ -187,9 +187,16 @@ func (a *api) Reap(ctx context.Context, every, keepTerminal time.Duration) {
 		case <-ticker.C:
 			for _, t := range a.transfers.ReapExpired(a.now(), keepTerminal) {
 				a.mirror(ctx, t)
+				a.metrics.TransferReached(string(t.State))
+				// An unanswered offer and an abandoned relay both travel as
+				// transfer.failed; only the reason differs.
+				reason := t.FailureReason
+				if t.State == transfer.StateExpired {
+					reason = transfer.ReasonOfferExpired
+				}
 				a.emit(ctx, EventTransferFailed, parties(t), map[string]any{
 					"id":           t.ID,
-					"reason":       transfer.ReasonOfferExpired,
+					"reason":       reason,
 					"bytesRelayed": t.BytesRelayed,
 				})
 			}

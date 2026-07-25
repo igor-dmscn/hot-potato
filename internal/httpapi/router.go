@@ -58,6 +58,9 @@ type Options struct {
 	RelayWriteDeadline time.Duration
 	RelayBuffer        int
 	ProgressInterval   time.Duration
+	// ResumeWindow is how long a parked Recipient waits for an interrupted
+	// Sender to come back. Zero makes every interruption terminal.
+	ResumeWindow time.Duration
 	// ReadModelTTL is how long mirrored Transfer metadata survives.
 	ReadModelTTL time.Duration
 	// Now is injected so expiry is testable without waiting for a minute.
@@ -89,6 +92,7 @@ type api struct {
 	relayWriteDeadline time.Duration
 	relayBuffer        int
 	progressInterval   time.Duration
+	resumeWindow       time.Duration
 	readModelTTL       time.Duration
 	now                func() time.Time
 }
@@ -129,6 +133,7 @@ func New(o Options) *Server {
 		relayWriteDeadline: o.RelayWriteDeadline,
 		relayBuffer:        o.RelayBuffer,
 		progressInterval:   o.ProgressInterval,
+		resumeWindow:       o.ResumeWindow,
 		readModelTTL:       o.ReadModelTTL,
 		now:                o.Now,
 	}

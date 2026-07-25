@@ -72,6 +72,12 @@ type Transfer struct {
 	BytesRelayed  int64  `json:"bytesRelayed"`
 	FailureReason string `json:"failureReason,omitempty"`
 
+	// ResumeBy is when an interrupted Transfer stops being resumable. It is set
+	// when a party detaches mid-relay and cleared when one attaches, and the
+	// reaper is what enforces it — otherwise a Transfer whose Sender never comes
+	// back is held open by nobody, forever.
+	ResumeBy time.Time `json:"resumeBy,omitzero"`
+
 	// Trace is the W3C traceparent of the request that proposed this Transfer.
 	// Its accept, its relay and its outcome are separate requests on possibly
 	// separate instances; carrying the header is what puts them on one trace.
@@ -158,6 +164,7 @@ func (t *Transfer) AttachRecipient(_ time.Time) error {
 		return ErrAlreadyAttached
 	}
 	t.RecipientAttached = true
+	t.ResumeBy = time.Time{}
 	return nil
 }
 
@@ -175,6 +182,36 @@ func (t *Transfer) AttachSender(_ time.Time) error {
 	}
 	t.SenderAttached = true
 	t.State = StateStreaming
+	t.ResumeBy = time.Time{}
+	return nil
+}
+
+// DetachSender lets a Sender that stopped mid-relay come back.
+//
+// The Transfer returns to accepted rather than failing, because the Recipient is
+// still holding its response open and the Owner is still holding the archive
+// position — the only state a resumed Transfer needs, and the reason resume
+// cannot survive the Owner's death (ADR 0008).
+func (t *Transfer) DetachSender(now time.Time, window time.Duration) error {
+	if err := t.mustBe("detach the sender from", StateStreaming); err != nil {
+		return err
+	}
+	t.SenderAttached = false
+	t.State = StateAccepted
+	t.ResumeBy = now.Add(window)
+	return nil
+}
+
+// DetachRecipient lets a Recipient reconnect, with Range, to a Transfer that is
+// still in flight.
+func (t *Transfer) DetachRecipient(now time.Time, window time.Duration) error {
+	if err := t.mustBe("detach the recipient from", StateStreaming, StateAccepted); err != nil {
+		return err
+	}
+	t.RecipientAttached = false
+	t.SenderAttached = false
+	t.State = StateAccepted
+	t.ResumeBy = now.Add(window)
 	return nil
 }
 
@@ -213,6 +250,12 @@ func (t *Transfer) Fail(reason string, bytes int64, now time.Time) error {
 // answered. Once accepted, a Transfer has no deadline.
 func (t *Transfer) Expire(now time.Time) error {
 	return t.transition("expire", StateExpired, now, StatePending)
+}
+
+// ResumeExpiredAt reports whether an interrupted Transfer has waited long enough
+// for the party that walked away.
+func (t Transfer) ResumeExpiredAt(now time.Time) bool {
+	return !t.IsTerminal() && !t.ResumeBy.IsZero() && !now.Before(t.ResumeBy)
 }
 
 // ExpiredAt reports whether an unanswered offer is past its TTL at now. It is

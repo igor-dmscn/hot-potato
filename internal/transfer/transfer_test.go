@@ -118,6 +118,8 @@ var actions = map[string]func(tr *Transfer) error{
 	"complete":        func(tr *Transfer) error { return tr.Complete(total, now) },
 	"fail":            func(tr *Transfer) error { return tr.Fail(ReasonInternal, 0, now) },
 	"expire":          func(tr *Transfer) error { return tr.Expire(now.Add(2 * ttl)) },
+	"detachSender":    func(tr *Transfer) error { return tr.DetachSender(now, time.Minute) },
+	"detachRecipient": func(tr *Transfer) error { return tr.DetachRecipient(now, time.Minute) },
 }
 
 // Every state against every action. The exhaustiveness is the point: a rule
@@ -130,16 +132,21 @@ func TestEveryStateAgainstEveryAction(t *testing.T) {
 			"accept": succeeds, "deny": succeeds, "cancel": succeeds,
 			"attachRecipient": illegal, "attachSender": illegal,
 			"complete": illegal, "fail": succeeds, "expire": succeeds,
+			"detachSender": illegal, "detachRecipient": illegal,
 		},
 		StateAccepted: {
 			"accept": illegal, "deny": illegal, "cancel": succeeds,
 			"attachRecipient": succeeds, "attachSender": unattached,
 			"complete": illegal, "fail": succeeds, "expire": illegal,
+			// A Sender cannot detach from a Transfer it has not attached to; a
+			// Recipient can, which is how a Range reconnect gets its slot back.
+			"detachSender": illegal, "detachRecipient": succeeds,
 		},
 		StateStreaming: {
 			"accept": illegal, "deny": illegal, "cancel": succeeds,
 			"attachRecipient": illegal, "attachSender": illegal,
 			"complete": succeeds, "fail": succeeds, "expire": illegal,
+			"detachSender": succeeds, "detachRecipient": succeeds,
 		},
 		StateCompleted: allIllegal(),
 		StateDenied:    allIllegal(),

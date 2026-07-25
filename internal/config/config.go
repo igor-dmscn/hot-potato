@@ -57,6 +57,7 @@ type Config struct {
 	RelayWriteDeadline time.Duration // HP_RELAY_WRITE_DEADLINE — per write, not per relay
 	RelayBuffer        int           // HP_RELAY_BUFFER
 	ProgressInterval   time.Duration // HP_PROGRESS_INTERVAL
+	ResumeWindow       time.Duration // HP_RESUME_WINDOW — 0 makes an interruption terminal
 
 	// Distributed. With HP_REDIS_URL unset the process runs standalone: presence
 	// and the Transfer read model stay in memory and nothing is shared.
@@ -133,6 +134,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		RelayWriteDeadline: l.duration("HP_RELAY_WRITE_DEADLINE", 30*time.Second),
 		RelayBuffer:        l.count("HP_RELAY_BUFFER", 64<<10),
 		ProgressInterval:   l.duration("HP_PROGRESS_INTERVAL", 250*time.Millisecond),
+		ResumeWindow:       l.duration("HP_RESUME_WINDOW", 30*time.Second),
 
 		Bus:          l.oneOf("HP_BUS", "memory", "memory", "nats", "redis", "kafka"),
 		NATSURL:      l.str("HP_NATS_URL", "nats://localhost:4222"),

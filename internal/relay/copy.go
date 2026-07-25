@@ -70,9 +70,17 @@ type Session struct {
 	o   Options
 	buf []byte
 
-	zw      *zip.Writer
-	entries int
-	total   int64
+	zw *zip.Writer
+	// cur is the entry being written. It stays non-nil between chunks when a
+	// Sender stopped part way through one: for a folder that is a live
+	// zip.Writer entry, and keeping it is what lets a resumed entry finish with
+	// the right CRC (ADR 0008).
+	cur io.Writer
+	// entry is how many entries are finished, which is also the index of the one
+	// in progress. offset is how far into it we are.
+	entry  int
+	offset int64
+	total  int64
 }
 
 func NewSession(dst io.Writer, p transfer.Payload, o Options) *Session {
@@ -92,8 +100,8 @@ func NewSession(dst io.Writer, p transfer.Payload, o Options) *Session {
 // Total is the Payload bytes relayed so far, excluding any zip framing.
 func (s *Session) Total() int64 { return s.total }
 
-// Entries is how many parts have been relayed.
-func (s *Session) Entries() int { return s.entries }
+// Entries is how many entries are finished.
+func (s *Session) Entries() int { return s.entry }
 
 // Consume relays every part in parts, and returns how many bytes this call
 // moved.
@@ -116,31 +124,39 @@ func (s *Session) Consume(parts *multipart.Reader) (int64, error) {
 }
 
 func (s *Session) relayPart(part *multipart.Part) error {
-	s.entries++
-	switch {
-	case s.p.Kind == transfer.KindFile && s.entries > 1:
-		return fmt.Errorf("%w: declared one file, but a second part arrived", ErrPayloadMismatch)
-	case s.p.Kind == transfer.KindFolder && s.p.EntryCount > 0 && s.entries > s.p.EntryCount:
-		return fmt.Errorf("%w: declared %d entries, part %d arrived",
-			ErrPayloadMismatch, s.p.EntryCount, s.entries)
+	// A part that continues an interrupted entry writes into the writer that was
+	// left open, rather than starting a new one.
+	resuming := s.cur != nil
+	if !resuming {
+		switch {
+		case s.p.Kind == transfer.KindFile && s.entry >= 1:
+			return fmt.Errorf("%w: declared one file, but a second part arrived", ErrPayloadMismatch)
+		case s.p.Kind == transfer.KindFolder && s.p.EntryCount > 0 && s.entry >= s.p.EntryCount:
+			return fmt.Errorf("%w: declared %d entries, part %d arrived",
+				ErrPayloadMismatch, s.p.EntryCount, s.entry+1)
+		}
 	}
 
-	dst := s.dst
-	if s.zw != nil {
-		w, err := s.zw.CreateHeader(&zip.FileHeader{
-			Name: SanitizeEntry(partFilename(part), s.entries),
-			// Store, not Deflate: compression burns CPU per byte on the one
-			// machine here that should stay a dumb pipe, and the payoff is a
-			// guess about data the server never sees (ADR 0004). Store also
-			// means archive/zip can write to a non-seekable writer, recording
-			// each entry's size in a trailing data descriptor.
-			Method:   zip.Store,
-			Modified: s.o.Modified,
-		})
-		if err != nil {
-			return WriteError{err}
+	dst := s.cur
+	if dst == nil {
+		dst = s.dst
+		if s.zw != nil {
+			w, err := s.zw.CreateHeader(&zip.FileHeader{
+				Name: SanitizeEntry(partFilename(part), s.entry+1),
+				// Store, not Deflate: compression burns CPU per byte on the one
+				// machine here that should stay a dumb pipe, and the payoff is a
+				// guess about data the server never sees (ADR 0004). Store also
+				// means archive/zip can write to a non-seekable writer, recording
+				// each entry's size in a trailing data descriptor.
+				Method:   zip.Store,
+				Modified: s.o.Modified,
+			})
+			if err != nil {
+				return WriteError{err}
+			}
+			dst = w
 		}
-		dst = w
+		s.cur = dst
 	}
 
 	// Which side failed decides which party gets blamed in transfer.failed, so
@@ -159,15 +175,25 @@ func (s *Session) relayPart(part *multipart.Part) error {
 	// blocks on the Recipient's socket, which stops draining the Sender's body.
 	n, err := io.CopyBuffer(counted, src, s.buf)
 	s.total += n
+	s.offset += n
 
 	switch {
 	case counted.err != nil:
 		return WriteError{counted.err}
 	case tracked.err != nil:
+		// The Sender stopped part way. The entry stays open, holding its
+		// position, so a resumed chunk can carry on writing into it.
 		return ReadError{tracked.err}
 	case err != nil:
 		return err
 	}
+
+	// The part ended cleanly, so the entry is finished. There is no way for a
+	// Sender to say "this part is incomplete" in multipart — a Sender that means
+	// to resume has to break the connection, not close the part (ADR 0004).
+	s.cur = nil
+	s.entry++
+	s.offset = 0
 	return nil
 }
 
@@ -185,11 +211,11 @@ func (s *Session) Close() error {
 			ErrPayloadMismatch, s.p.TotalBytes, s.total)
 	}
 	switch {
-	case s.p.Kind == transfer.KindFile && s.entries != 1:
-		return fmt.Errorf("%w: declared one file, %d parts arrived", ErrPayloadMismatch, s.entries)
-	case s.p.Kind == transfer.KindFolder && s.p.EntryCount > 0 && s.entries != s.p.EntryCount:
+	case s.p.Kind == transfer.KindFile && s.entry != 1:
+		return fmt.Errorf("%w: declared one file, %d parts arrived", ErrPayloadMismatch, s.entry)
+	case s.p.Kind == transfer.KindFolder && s.p.EntryCount > 0 && s.entry != s.p.EntryCount:
 		return fmt.Errorf("%w: declared %d entries, %d arrived",
-			ErrPayloadMismatch, s.p.EntryCount, s.entries)
+			ErrPayloadMismatch, s.p.EntryCount, s.entry)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,8 +70,15 @@ func (a *api) reportProgress(ctx context.Context, t transfer.Transfer, counted *
 		}
 	}()
 
+	// Idempotent, because the relay has several endings — completion, a write
+	// failure, a Recipient walking away — and each of them wants the ticker
+	// stopped. Closing a closed channel is a panic, and a panic inside a handler
+	// takes the connection with it.
+	var once sync.Once
 	return func() {
-		close(stop)
-		<-done
+		once.Do(func() {
+			close(stop)
+			<-done
+		})
 	}
 }

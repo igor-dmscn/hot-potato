@@ -3,10 +3,12 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,8 +19,14 @@ import (
 	"hotpotato/internal/transfer"
 )
 
-// errRendezvousTimeout is a Sender who never arrived.
-var errRendezvousTimeout = errors.New("the sender did not arrive")
+var (
+	// errRendezvousTimeout is a Sender who never arrived.
+	errRendezvousTimeout = errors.New("the sender did not arrive")
+	// errResumeTimeout is a Sender who arrived, stopped, and did not come back.
+	errResumeTimeout = errors.New("the sender did not resume")
+	// errUnsatisfiableRange is a Range this design cannot serve.
+	errUnsatisfiableRange = errors.New("that range cannot be served")
+)
 
 // download is GET /d/{id}: the Recipient's half of the data plane.
 //
@@ -90,46 +98,207 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// pump runs the relay and reports the outcome to everybody who needs it.
+// pump runs the relay to its end, across as many Sender requests as it takes,
+// and reports the outcome to everybody who needs it.
+//
+// The Session — including a folder's live zip.Writer and its half-written entry —
+// lives in this function's frame for the whole Transfer. That is the only state a
+// resumed Transfer needs, and it is also why resume cannot survive the Owner's
+// death (ADR 0008).
 func (a *api) pump(w http.ResponseWriter, r *http.Request, t transfer.Transfer, src *relay.Source, sink *relay.Sink) {
 	announce := context.WithoutCancel(r.Context())
 	started := a.now()
 
-	if _, err := a.transfers.Get(t.ID); err != nil {
-		src.Report(relay.Result{Err: err})
+	resumeFrom, ok := relay.ParseRangeStart(r.Header.Get("Range"))
+	if !ok || (resumeFrom > 0 && t.Payload.Kind != transfer.KindFile) {
+		// A folder cannot be resumed into a new response: the archive was being
+		// built as it streamed, and that stream is gone.
+		src.Report(relay.Result{Err: errUnsatisfiableRange})
+		writeError(w, http.StatusRequestedRangeNotSatisfiable, codeBadRequest,
+			"only `Range: bytes=N-` on a single file can be resumed")
 		return
 	}
 
 	// The response shape follows from the declared Payload, so it is settled
 	// before a byte arrives.
-	relay.Describe(t.Payload).ApplyTo(w)
+	relay.Describe(t.Payload).ResumedFrom(resumeFrom).ApplyTo(w)
 
 	rc := http.NewResponseController(w)
 	dst := relay.NewDeadlineWriter(w, deadlineController{rc}, a.relayWriteDeadline)
 
 	var counted atomic.Int64
+	counted.Store(resumeFrom) // progress carries on from where the last attempt stopped
 	stopProgress := a.reportProgress(announce, t, &counted, started)
+	defer stopProgress()
 
-	n, copyErr := relay.Copy(dst, src.Parts, t.Payload, relay.Options{
+	session := relay.NewSession(dst, t.Payload, relay.Options{
 		Count:    func(n int64) { counted.Add(n) },
 		Stop:     sink.Canceled(),
 		Buffer:   a.relayBuffer,
 		Modified: t.CreatedAt,
 	})
-	stopProgress()
-	// Flush the tail: a zip's central directory is written by Close, after the
-	// last entry's bytes.
-	if err := rc.Flush(); err != nil {
-		slog.Debug("final flush", "transfer", t.ID, "err", err)
+	if resumeFrom > 0 {
+		if err := session.SkipTo(resumeFrom); err != nil {
+			src.Report(relay.Result{Err: err})
+			a.finish(announce, t.ID, 0, started, err)
+			return
+		}
 	}
 
-	a.metrics.RelayedBytes(n)
-	if elapsed := a.now().Sub(started).Seconds(); elapsed > 0 && copyErr == nil {
-		a.metrics.Throughput(float64(n) / elapsed)
+	end := func(err error) {
+		stopProgress()
+		// Flush the tail: a zip's central directory is written by Close, after
+		// the last entry's bytes.
+		if flushErr := rc.Flush(); flushErr != nil {
+			slog.Debug("final flush", "transfer", t.ID, "err", flushErr)
+		}
+		relayed := session.Total() - resumeFrom
+		a.metrics.RelayedBytes(relayed)
+		if elapsed := a.now().Sub(started).Seconds(); elapsed > 0 && err == nil {
+			a.metrics.Throughput(float64(relayed) / elapsed)
+		}
+		a.finish(announce, t.ID, session.Total(), started, err)
 	}
 
-	src.Report(relay.Result{Bytes: n, Err: copyErr, Complete: copyErr == nil})
-	a.finish(announce, t.ID, n, started, copyErr)
+	for {
+		chunkErr := a.relayChunk(session, src)
+		switch {
+		case session.Complete():
+			end(session.Close())
+			return
+		case isWriteFailure(chunkErr):
+			// The Recipient's socket is gone. If it can come back with a Range —
+			// which only a single file can — the Transfer waits for it instead of
+			// failing.
+			stopProgress()
+			a.recipientLeft(announce, t, session, resumeFrom, started)
+			return
+		case a.resumeWindow <= 0 && chunkErr != nil:
+			end(chunkErr)
+			return
+		case !resumable(chunkErr):
+			end(chunkErr)
+			return
+		}
+
+		// Let the Sender come back. The Transfer stays live: the Recipient is
+		// still here and so is the archive position.
+		if _, err := a.mutate(announce, t.ID, func(x *transfer.Transfer) error {
+			return x.DetachSender(a.now(), a.resumeWindow)
+		}); err != nil {
+			slog.Debug("detach sender", "transfer", t.ID, "err", err)
+		}
+		// The invitation carries the position, not just the fact.
+		//
+		// A Sender whose upload died usually never sees its own response: the HTTP
+		// client reports the broken request body instead. Putting the position on
+		// the control plane is what makes resume usable rather than theoretical —
+		// and the control plane is exactly where "here is the current state of your
+		// Transfer" belongs.
+		entry, offset := session.Position()
+		a.emit(announce, EventTransferReady, []string{t.Sender}, map[string]any{
+			"id":     t.ID,
+			"resume": true,
+			"entry":  entry,
+			"offset": offset,
+		})
+
+		next := time.NewTimer(a.resumeWindow)
+		select {
+		case src = <-sink.Ready():
+			next.Stop()
+		case <-r.Context().Done():
+			next.Stop()
+			stopProgress()
+			a.recipientLeft(announce, t, session, resumeFrom, started)
+			return
+		case <-next.C:
+			end(relay.ReadError{Err: errResumeTimeout})
+			return
+		}
+	}
+}
+
+// relayChunk consumes one Sender request. It returns nil when the chunk ended
+// cleanly, whether or not the Payload is now whole.
+func (a *api) relayChunk(session *relay.Session, src *relay.Source) error {
+	// Where the Sender thinks it is, against where the relay actually is. The
+	// Sender cannot work this out for itself: what it wrote into a socket is not
+	// what the Recipient read out of one.
+	if err := session.Continue(src.EntryIndex, src.EntryOffset); err != nil {
+		var mismatch relay.OffsetMismatchError
+		errors.As(err, &mismatch)
+		src.Report(relay.Result{
+			Err:            err,
+			ExpectedIndex:  mismatch.ExpectedEntry,
+			ExpectedOffset: mismatch.ExpectedOffset,
+		})
+		return err
+	}
+
+	n, err := session.Consume(src.Parts)
+	entry, offset := session.Position()
+	src.Report(relay.Result{
+		Bytes:          n,
+		Err:            err,
+		Complete:       session.Complete(),
+		ExpectedIndex:  entry,
+		ExpectedOffset: offset,
+	})
+	return err
+}
+
+// resumable reports whether waiting for another chunk could help. A Sender that
+// stopped or asked for the wrong offset can try again; a Recipient whose socket
+// is gone cannot be written to by anybody.
+func resumable(err error) bool {
+	if err == nil {
+		return true
+	}
+	var readErr relay.ReadError
+	var mismatch relay.OffsetMismatchError
+	return errors.As(err, &readErr) || errors.As(err, &mismatch)
+}
+
+func isWriteFailure(err error) bool {
+	var writeErr relay.WriteError
+	return errors.As(err, &writeErr)
+}
+
+// recipientLeft handles a Recipient whose response is gone.
+//
+// A single file can be picked up again with `Range: bytes=N-`, so the Transfer is
+// detached rather than failed and the reaper enforces the deadline. A folder
+// cannot: the archive was being built as it streamed, and that stream has gone
+// with the socket.
+func (a *api) recipientLeft(ctx context.Context, t transfer.Transfer, session *relay.Session, resumeFrom int64, started time.Time) {
+	relayed := session.Total() - resumeFrom
+	a.metrics.RelayedBytes(relayed)
+
+	if a.resumeWindow <= 0 || t.Payload.Kind != transfer.KindFile {
+		a.finish(ctx, t.ID, session.Total(), started,
+			relay.WriteError{Err: errors.New("the recipient went away")})
+		return
+	}
+
+	_, offset := session.Position()
+	if _, err := a.mutate(ctx, t.ID, func(x *transfer.Transfer) error {
+		x.BytesRelayed = offset
+		return x.DetachRecipient(a.now(), a.resumeWindow)
+	}); err != nil {
+		slog.Debug("detach recipient", "transfer", t.ID, "err", err)
+		return
+	}
+	slog.Info("recipient left mid-relay; holding it open",
+		"transfer", t.ID, "at", offset, "window", a.resumeWindow)
+	// Both parties are told where it stopped, so the Recipient knows what to ask
+	// for with Range and the Sender knows to expect a fresh request.
+	a.emit(ctx, EventTransferProgress, parties(t), map[string]any{
+		"id":          t.ID,
+		"bytes":       offset,
+		"total":       t.Payload.TotalBytes,
+		"bytesPerSec": 0,
+	})
 }
 
 // upload is POST /d/{id}: the Sender's half.
@@ -148,6 +317,12 @@ func (a *api) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	entry, offset, err := resumePosition(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
+		return
+	}
+
 	t, err := a.mutate(r.Context(), id, func(t *transfer.Transfer) error {
 		if u.ID != t.Sender {
 			return transfer.ErrForbidden
@@ -162,6 +337,8 @@ func (a *api) upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	src := relay.NewSource(multipart.NewReader(r.Body, params["boundary"]), r.Context())
+	src.EntryIndex, src.EntryOffset = entry, offset
+
 	if err := a.rendezvous.Handoff(id, src); err != nil {
 		// The Recipient's handler returned between the state transition and
 		// this line. Nobody is going to read the body.
@@ -171,12 +348,44 @@ func (a *api) upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := src.Wait()
-	if res.Err != nil {
+	var mismatch relay.OffsetMismatchError
+	switch {
+	case errors.As(res.Err, &mismatch):
+		// The one error a Sender can act on, so it is told exactly where to
+		// start. There is no manifest to check an entry against (ADR 0004): a
+		// wrong offset that got through would surface as a CRC error at unzip
+		// time, which is far too late.
+		w.Header().Set(relay.HeaderExpectedEntry, strconv.Itoa(mismatch.ExpectedEntry))
+		w.Header().Set(relay.HeaderExpectedOffset, strconv.FormatInt(mismatch.ExpectedOffset, 10))
+		writeError(w, http.StatusConflict, codeIllegalState, mismatch.Error())
+		return
+	case res.Err != nil:
+		// The Recipient may still be waiting for another attempt; the headers say
+		// where from.
+		w.Header().Set(relay.HeaderExpectedEntry, strconv.Itoa(res.ExpectedIndex))
+		w.Header().Set(relay.HeaderExpectedOffset, strconv.FormatInt(res.ExpectedOffset, 10))
 		writeError(w, http.StatusBadGateway, codeInternal, res.Err.Error())
 		return
 	}
-	slog.Info("relayed", "transfer", t.ID, "bytes", res.Bytes, "kind", t.Payload.Kind)
+	slog.Info("relayed", "transfer", t.ID, "bytes", res.Bytes,
+		"kind", t.Payload.Kind, "complete", res.Complete)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// resumePosition reads where the Sender claims to be starting. Absent headers
+// mean the beginning, which is what an ordinary first attempt sends.
+func resumePosition(r *http.Request) (entry int, offset int64, err error) {
+	if v := r.Header.Get(relay.HeaderEntryIndex); v != "" {
+		if entry, err = strconv.Atoi(v); err != nil || entry < 0 {
+			return 0, 0, fmt.Errorf("%s must be a non-negative integer", relay.HeaderEntryIndex)
+		}
+	}
+	if v := r.Header.Get(relay.HeaderEntryOffset); v != "" {
+		if offset, err = strconv.ParseInt(v, 10, 64); err != nil || offset < 0 {
+			return 0, 0, fmt.Errorf("%s must be a non-negative integer", relay.HeaderEntryOffset)
+		}
+	}
+	return entry, offset, nil
 }
 
 // finish applies the terminal transition and announces it. It is the only place

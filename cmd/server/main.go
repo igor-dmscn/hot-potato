@@ -223,6 +223,7 @@ func run() error {
 		RelayWriteDeadline: cfg.RelayWriteDeadline,
 		RelayBuffer:        cfg.RelayBuffer,
 		ProgressInterval:   cfg.ProgressInterval,
+		ResumeWindow:       cfg.ResumeWindow,
 		ReadModelTTL:       cfg.ReadModelTTL,
 	})
 	go api.Reap(busCtx, cfg.ReapInterval, cfg.TerminalWindow)

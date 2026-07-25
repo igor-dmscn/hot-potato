@@ -40,6 +40,7 @@ type harnessOpts struct {
 	rendezvousWait   time.Duration
 	progressInterval time.Duration
 	readyTimeout     time.Duration
+	resumeWindow     time.Duration
 	limits           transfer.Limits
 	checks           []Check
 	now              func() time.Time
@@ -53,6 +54,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		rendezvousWait:   5 * time.Second,
 		progressInterval: 20 * time.Millisecond,
 		readyTimeout:     2 * time.Second,
+		resumeWindow:     0, // most tests want an interruption to be terminal
 		limits: transfer.Limits{
 			OfferTTL:          time.Minute,
 			MaxOutbound:       3,
@@ -139,6 +141,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		RelayWriteDeadline: 10 * time.Second,
 		RelayBuffer:        64 << 10,
 		ProgressInterval:   o.progressInterval,
+		ResumeWindow:       o.resumeWindow,
 		Rendezvous:         rendezvous,
 		Now:                o.now,
 	})

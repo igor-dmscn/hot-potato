@@ -216,9 +216,10 @@ func (r *Registry) ForUser(userID string, now time.Time, keepTerminal time.Durat
 	return out
 }
 
-// ReapExpired expires unanswered offers and forgets Transfers that ended longer
-// ago than keepTerminal. It returns what it expired, so the caller can tell both
-// parties.
+// ReapExpired ends what has run out of time and forgets what ended long enough
+// ago. It returns everything it made terminal, so the caller can tell both
+// parties — an unanswered offer and an abandoned relay are both outcomes somebody
+// is waiting to hear about.
 func (r *Registry) ReapExpired(now time.Time, keepTerminal time.Duration) []Transfer {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -228,6 +229,11 @@ func (r *Registry) ReapExpired(now time.Time, keepTerminal time.Duration) []Tran
 		switch {
 		case t.ExpiredAt(now):
 			if err := t.Expire(now); err == nil {
+				expired = append(expired, *t)
+			}
+		case t.ResumeExpiredAt(now):
+			// Interrupted, and nobody came back for it.
+			if err := t.Fail(ReasonSenderDisconnected, t.BytesRelayed, now); err == nil {
 				expired = append(expired, *t)
 			}
 		case t.IsTerminal() && now.Sub(t.EndedAt) > keepTerminal:

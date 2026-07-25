@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
+	"hotpotato/internal/relay"
 	"hotpotato/internal/transfer"
 )
 
@@ -102,6 +104,10 @@ type downloadOptions struct {
 	keep bool
 	// stopAfter closes the response early, modelling a Recipient who walks away.
 	stopAfter int64
+	// rangeFrom asks for the tail of a Payload the Recipient already has part of.
+	rangeFrom int64
+	// alwaysRange sends the header even for offset 0.
+	alwaysRange bool
 }
 
 func (x *harness) startDownload(t *testing.T, cookie *http.Cookie, id transfer.ID, o downloadOptions) <-chan received {
@@ -125,6 +131,9 @@ func startDownload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *
 		t.Fatalf("new request: %v", err)
 	}
 	req.AddCookie(cookie)
+	if o.rangeFrom > 0 || o.alwaysRange {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", o.rangeFrom))
+	}
 
 	go func() {
 		res, err := hc.Do(req)
@@ -160,10 +169,18 @@ func startDownload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *
 	return out
 }
 
-// uploadOptions controls how the Sender misbehaves.
+// uploadOptions controls how the Sender behaves, and misbehaves.
 type uploadOptions struct {
 	// killAfter aborts the request body once this many Payload bytes are in.
 	killAfter int64
+	// fromEntry and fromOffset are a resume position: entries already delivered,
+	// and bytes already delivered of the next one. A resuming Sender sends the
+	// tail and nothing else, and says where it starts.
+	fromEntry  int
+	fromOffset int64
+	// resuming sends the position headers even when the position is 0/0, which is
+	// what makes a deliberately wrong offset testable.
+	resuming bool
 }
 
 func (x *harness) upload(t *testing.T, cookie *http.Cookie, id transfer.ID, parts []part, o uploadOptions) (*http.Response, error) {
@@ -184,13 +201,24 @@ func upload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *http.Co
 		defer func() { pw.CloseWithError(err) }()
 
 		var sent int64
-		for _, p := range parts {
+		for i, p := range parts {
+			// Entries the relay already has are not sent again.
+			if i < o.fromEntry {
+				continue
+			}
 			w, e := mw.CreateFormFile("files", p.name)
 			if e != nil {
 				err = e
 				return
 			}
 			src := p.data()
+			if i == o.fromEntry && o.fromOffset > 0 {
+				// The tail of the interrupted entry.
+				if _, e := io.CopyN(io.Discard, src, o.fromOffset); e != nil {
+					err = e
+					return
+				}
+			}
 			if o.killAfter > 0 {
 				remaining := o.killAfter - sent
 				if remaining <= 0 {
@@ -218,6 +246,10 @@ func upload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *http.Co
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if o.resuming || o.fromEntry > 0 || o.fromOffset > 0 {
+		req.Header.Set(relay.HeaderEntryIndex, strconv.Itoa(o.fromEntry))
+		req.Header.Set(relay.HeaderEntryOffset, strconv.FormatInt(o.fromOffset, 10))
+	}
 	req.AddCookie(cookie)
 	return hc.Do(req)
 }
