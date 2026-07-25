@@ -205,17 +205,28 @@ func TestTwoTabsAcceptAndExactlyOneWins(t *testing.T) {
 	}
 }
 
-func TestAcceptRejectsAStreamThatIsNotYours(t *testing.T) {
+// The accepting Stream is a hint for the caller's own other tabs, not an
+// authorization input — the instance that owns the Transfer has usually never
+// heard of it. Only its length is checked, because it is echoed into an event.
+func TestAcceptBoundsTheStreamID(t *testing.T) {
 	t.Parallel()
 	x := newHarness(t)
 	p := newPair(t, x)
-	id := p.offer(t, x)
 
-	// The Sender's Stream ID, presented by the Recipient.
+	id := p.offer(t, x)
 	rec := x.do(t, "POST", "/api/transfers/"+string(id)+"/accept",
-		fmt.Sprintf(`{"streamId":%q}`, p.senderStreamID), p.recipientCookie)
+		fmt.Sprintf(`{"streamId":%q}`, strings.Repeat("s", maxStreamIDLength+1)), p.recipientCookie)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("accept with somebody else's stream = %d %s, want 400", rec.Code, rec.Body)
+		t.Fatalf("accept with an over-long streamId = %d %s, want 400", rec.Code, rec.Body)
+	}
+
+	// A Stream belonging to another of this User's tabs, on another instance,
+	// is a perfectly ordinary value.
+	id = p.offer(t, x)
+	rec = x.do(t, "POST", "/api/transfers/"+string(id)+"/accept",
+		`{"streamId":"s_ONANOTHERINSTANCE"}`, p.recipientCookie)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("accept with an unknown streamId = %d %s, want 202", rec.Code, rec.Body)
 	}
 }
 

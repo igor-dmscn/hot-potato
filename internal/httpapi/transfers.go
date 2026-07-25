@@ -14,6 +14,9 @@ import (
 	"hotpotato/internal/transfer"
 )
 
+// maxStreamIDLength bounds a value the client supplies and the server echoes.
+const maxStreamIDLength = 64
+
 // The control plane's Transfer events, from DESIGN §7.
 const (
 	EventTransferCreated   = "transfer.created"
@@ -70,6 +73,7 @@ func (a *api) createTransfer(w http.ResponseWriter, r *http.Request) {
 		a.transferError(w, r, err)
 		return
 	}
+	a.mirror(r.Context(), *t)
 
 	// The Sender's other tabs learn about it too, which is what makes the
 	// outbound list the same on every one of them.
@@ -91,15 +95,23 @@ func (a *api) acceptTransfer(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	// The Stream has to be one of this User's own: the ID is echoed to their
-	// other tabs, and a value from elsewhere would clear the wrong prompt.
-	if !a.streams.Owns(u.ID, body.StreamID) {
-		writeError(w, http.StatusBadRequest, codeBadRequest, "streamId is not one of your streams")
+	// streamId is a hint for the Recipient's *other* tabs, so they can clear a
+	// prompt that was answered elsewhere.
+	//
+	// It is deliberately not checked against the Stream registry. In a
+	// multi-instance deployment the Recipient's Stream lives on whichever
+	// instance they are attached to, and this request has been redirected to the
+	// instance that owns the Transfer — usually a different one, which has never
+	// heard of that Stream. It is not an authorization input either: the worst a
+	// wrong value achieves is failing to clear one of the caller's own prompts.
+	// Only its length is bounded, because it is echoed into an event.
+	if len(body.StreamID) > maxStreamIDLength {
+		writeError(w, http.StatusBadRequest, codeBadRequest, "streamId is too long")
 		return
 	}
 
 	now := a.now()
-	t, err := a.transfers.Mutate(transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
+	t, err := a.mutate(r.Context(), transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
 		return t.Accept(u.ID, body.StreamID, now)
 	})
 	if err != nil {
@@ -122,7 +134,7 @@ func (a *api) denyTransfer(w http.ResponseWriter, r *http.Request) {
 	u, _ := auth.UserFrom(r.Context())
 	now := a.now()
 
-	t, err := a.transfers.Mutate(transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
+	t, err := a.mutate(r.Context(), transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
 		return t.Deny(u.ID, now)
 	})
 	if err != nil {
@@ -138,7 +150,7 @@ func (a *api) cancelTransfer(w http.ResponseWriter, r *http.Request) {
 	u, _ := auth.UserFrom(r.Context())
 	now := a.now()
 
-	t, err := a.transfers.Mutate(transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
+	t, err := a.mutate(r.Context(), transfer.ID(r.PathValue("id")), func(t *transfer.Transfer) error {
 		return t.Cancel(u.ID, now)
 	})
 	if err != nil {
@@ -167,6 +179,7 @@ func (a *api) Reap(ctx context.Context, every, keepTerminal time.Duration) {
 			return
 		case <-ticker.C:
 			for _, t := range a.transfers.ReapExpired(a.now(), keepTerminal) {
+				a.mirror(ctx, t)
 				a.emit(ctx, EventTransferFailed, parties(t), map[string]any{
 					"id":           t.ID,
 					"reason":       transfer.ReasonOfferExpired,
@@ -174,6 +187,28 @@ func (a *api) Reap(ctx context.Context, every, keepTerminal time.Duration) {
 				})
 			}
 		}
+	}
+}
+
+// mutate applies a transition and mirrors the result into the read model.
+//
+// Every state change goes through here, which is what keeps the mirror honest
+// without a Put next to each transition. The mirror is written even when the
+// transition was refused: it costs one round trip and removes the question of
+// whether this particular failure changed anything (Complete on a short payload
+// does).
+func (a *api) mutate(ctx context.Context, id transfer.ID, fn func(*transfer.Transfer) error) (transfer.Transfer, error) {
+	t, err := a.transfers.Mutate(id, fn)
+	if t.ID != "" {
+		a.mirror(ctx, t)
+	}
+	return t, err
+}
+
+func (a *api) mirror(ctx context.Context, t transfer.Transfer) {
+	if err := a.readModel.Put(ctx, t, a.readModelTTL); err != nil {
+		// A snapshot that misses a Transfer is a worse page, not a broken one.
+		slog.Error("mirror transfer", "transfer", t.ID, "err", err)
 	}
 }
 

@@ -90,12 +90,18 @@ func (a *api) snapshot(ctx context.Context, u auth.User, streamID string) ([]bus
 	if err != nil {
 		return nil, err
 	}
+	// Through the read model, not the local Registry: a User's Transfers may be
+	// owned by other instances, and a snapshot has to include them (ADR 0007).
+	transfers, err := a.readModel.ForUser(ctx, u.ID, a.now())
+	if err != nil {
+		return nil, err
+	}
 	e, err := bus.NewEvent(EventSnapshot, []string{u.ID}, snapshotView{
 		Self:      dto(u),
 		StreamID:  streamID,
 		Instance:  a.instance,
 		Users:     users,
-		Transfers: a.transfers.ForUser(u.ID, a.now(), a.terminalWindow),
+		Transfers: transfers,
 	})
 	if err != nil {
 		return nil, err

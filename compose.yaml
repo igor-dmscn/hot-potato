@@ -1,7 +1,8 @@
 name: hotpotato
 
-# Local dependencies only. The app itself runs from `go run ./cmd/server` until
-# phase 7, where two instances behind a proxy become the point.
+# `docker compose up postgres redis nats` is enough to run the tests and a local
+# server. `docker compose up` brings the whole two-instance topology: that is
+# where the asymmetry between the planes stops being theory.
 services:
   postgres:
     image: postgres:17-alpine
@@ -16,3 +17,71 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+
+  redis:
+    image: redis:7-alpine
+    # No persistence: everything here is presence and a read model, all of it
+    # self-expiring and all of it rebuilt by the next refresh (ADR 0005).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  nats:
+    image: nats:2-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222" # monitoring
+    command: ["--http_port", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  inst-a: &instance
+    build: .
+    environment: &instance-env
+      HP_ADDR: ":8080"
+      HP_INSTANCE_ID: inst-a
+      # Browser-reachable, because the client is the one that follows the 307.
+      # A container-internal name here would redirect a browser to a host it
+      # cannot resolve.
+      HP_EXTERNAL_URL: http://localhost:8081
+      HP_DATABASE_URL: postgres://hotpotato:hotpotato@postgres:5432/hotpotato
+      HP_REDIS_URL: redis://redis:6379/0
+      HP_BUS: nats
+      HP_NATS_URL: nats://nats:4222
+      HP_LOG_LEVEL: info
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  inst-b:
+    <<: *instance
+    environment:
+      <<: *instance-env
+      HP_INSTANCE_ID: inst-b
+      HP_EXTERNAL_URL: http://localhost:8082
+    ports:
+      - "8082:8080"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - inst-a
+      - inst-b

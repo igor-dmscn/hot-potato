@@ -1,0 +1,23 @@
+# The entry point in front of two instances.
+#
+# It round-robins, which is exactly the situation the ownership redirect exists
+# for: whichever instance a request lands on, anything about a Transfer it does
+# not own is answered 307 to the instance that does (ADR 0007).
+:8080 {
+	reverse_proxy inst-a:8080 inst-b:8080 {
+		lb_policy round_robin
+
+		# -1 disables response buffering. Without it an SSE stream arrives as a
+		# file once it ends, and a relay's memory profile becomes the proxy's
+		# problem instead of nobody's.
+		flush_interval -1
+
+		# Long-lived streams and multi-gigabyte uploads: no whole-request
+		# deadlines on either.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			response_header_timeout 30s
+		}
+	}
+}

@@ -116,8 +116,11 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 			Retry:         3 * time.Second,
 			WriteDeadline: 2 * time.Second,
 		},
+		ReadModel:          transfer.NewLocal(transfers, time.Minute),
+		Directory:          LocalDirectory{Instance: "inst-test", BaseURL: "http://inst-test.invalid"},
 		Limits:             o.limits,
 		TerminalWindow:     time.Minute,
+		ReadModelTTL:       5 * time.Minute,
 		RendezvousWait:     o.rendezvousWait,
 		RelayWriteDeadline: 10 * time.Second,
 		RelayBuffer:        64 << 10,
@@ -209,13 +212,18 @@ type stream struct {
 func (x *harness) openStream(t *testing.T, cookie *http.Cookie) *stream {
 	t.Helper()
 	srv := x.server(t)
+	return openStreamOn(t, srv, srv.Client(), cookie)
+}
+
+func openStreamOn(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *http.Cookie) *stream {
+	t.Helper()
 
 	req, err := http.NewRequest("GET", srv.URL+"/events", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	req.AddCookie(cookie)
-	res, err := srv.Client().Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
 		t.Fatalf("GET /events: %v", err)
 	}

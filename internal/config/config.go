@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,7 +57,24 @@ type Config struct {
 	RelayWriteDeadline time.Duration // HP_RELAY_WRITE_DEADLINE — per write, not per relay
 	RelayBuffer        int           // HP_RELAY_BUFFER
 	ProgressInterval   time.Duration // HP_PROGRESS_INTERVAL
+
+	// Distributed. With HP_REDIS_URL unset the process runs standalone: presence
+	// and the Transfer read model stay in memory and nothing is shared.
+	Bus          string // HP_BUS: memory | nats | redis | kafka
+	NATSURL      string // HP_NATS_URL
+	KafkaBrokers string // HP_KAFKA_BROKERS, comma-separated
+	BusSubject   string // HP_BUS_SUBJECT — subject, channel or topic
+	RedisURL     string // HP_REDIS_URL
+
+	PresenceTTL     time.Duration // HP_PRESENCE_TTL
+	PresenceRefresh time.Duration // HP_PRESENCE_REFRESH
+	InstanceTTL     time.Duration // HP_INSTANCE_TTL
+	InstanceRefresh time.Duration // HP_INSTANCE_REFRESH
+	ReadModelTTL    time.Duration // HP_READ_MODEL_TTL
 }
+
+// Distributed reports whether this process shares state with others.
+func (c Config) Distributed() bool { return c.RedisURL != "" }
 
 // Secret is a configuration value that must never reach a log or a response.
 //
@@ -111,6 +129,18 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		RelayWriteDeadline: l.duration("HP_RELAY_WRITE_DEADLINE", 30*time.Second),
 		RelayBuffer:        l.count("HP_RELAY_BUFFER", 64<<10),
 		ProgressInterval:   l.duration("HP_PROGRESS_INTERVAL", 250*time.Millisecond),
+
+		Bus:          l.oneOf("HP_BUS", "memory", "memory", "nats", "redis", "kafka"),
+		NATSURL:      l.str("HP_NATS_URL", "nats://localhost:4222"),
+		KafkaBrokers: l.str("HP_KAFKA_BROKERS", "localhost:9092"),
+		BusSubject:   l.str("HP_BUS_SUBJECT", "hp.events"),
+		RedisURL:     l.str("HP_REDIS_URL", ""),
+
+		PresenceTTL:     l.duration("HP_PRESENCE_TTL", 30*time.Second),
+		PresenceRefresh: l.duration("HP_PRESENCE_REFRESH", 10*time.Second),
+		InstanceTTL:     l.duration("HP_INSTANCE_TTL", 30*time.Second),
+		InstanceRefresh: l.duration("HP_INSTANCE_REFRESH", 10*time.Second),
+		ReadModelTTL:    l.duration("HP_READ_MODEL_TTL", 5*time.Minute),
 	}
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))
@@ -215,6 +245,19 @@ func (l *loader) level(key string, def slog.Level) slog.Level {
 		return def
 	}
 	return lvl
+}
+
+// oneOf accepts a value from a fixed set, and names the set when it does not.
+func (l *loader) oneOf(key, def string, allowed ...string) string {
+	v, ok := l.present(key)
+	if !ok {
+		return def
+	}
+	if slices.Contains(allowed, v) {
+		return v
+	}
+	l.reject(key, v, "must be one of "+strings.Join(allowed, ", "))
+	return def
 }
 
 func (l *loader) url(key, def string) string {

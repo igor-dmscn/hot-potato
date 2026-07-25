@@ -35,7 +35,7 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, err := a.transfers.Mutate(id, func(t *transfer.Transfer) error {
+	t, err := a.mutate(r.Context(), id, func(t *transfer.Transfer) error {
 		// The Recipient's identity is verified here, on every request: a
 		// Transfer ID is not an authorization token.
 		if u.ID != t.Recipient {
@@ -132,7 +132,7 @@ func (a *api) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, err := a.transfers.Mutate(id, func(t *transfer.Transfer) error {
+	t, err := a.mutate(r.Context(), id, func(t *transfer.Transfer) error {
 		if u.ID != t.Sender {
 			return transfer.ErrForbidden
 		}
@@ -168,7 +168,7 @@ func (a *api) upload(w http.ResponseWriter, r *http.Request) {
 // Transfer however the relay ended.
 func (a *api) finish(ctx context.Context, id transfer.ID, bytes int64, started time.Time, copyErr error) {
 	now := a.now()
-	final, err := a.transfers.Mutate(id, func(t *transfer.Transfer) error {
+	final, err := a.mutate(ctx, id, func(t *transfer.Transfer) error {
 		if copyErr != nil {
 			return t.Fail(reasonFor(copyErr), bytes, now)
 		}

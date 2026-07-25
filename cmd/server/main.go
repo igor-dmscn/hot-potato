@@ -13,10 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"hotpotato/internal/auth"
 	"hotpotato/internal/bus"
 	"hotpotato/internal/config"
 	"hotpotato/internal/httpapi"
+	"hotpotato/internal/mirror"
 	"hotpotato/internal/postgres"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/relay"
@@ -43,10 +46,14 @@ func run() error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	// Half of all deployment confusion is a process that did not get the
 	// variable someone thought they set. Log the resolved config once.
-	slog.Info("boot", "config", cfg, "pid", os.Getpid())
+	slog.Info("boot", "config", cfg, "pid", os.Getpid(), "distributed", cfg.Distributed())
 
-	// A boot budget: a database that is not there should fail the process, not
-	// hang it. Everything after this point is either wired or fatal.
+	// Signals first: everything below registers cleanup against this.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// A boot budget: a dependency that is not there should fail the process, not
+	// hang it.
 	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelBoot()
 
@@ -67,14 +74,20 @@ func run() error {
 		LoginFailureWindow: cfg.LoginFailureWindow,
 	})
 
-	// The control plane. The bus outlives the request-serving context so that
-	// events still flow while the server is draining.
+	// The bus outlives the request-serving context, so events still flow while
+	// the server is draining.
 	busCtx, stopBus := context.WithCancel(context.Background())
 	defer stopBus()
 
-	eventBus := bus.NewMemory(bus.Options{Buffer: cfg.BusBuffer})
+	eventBus, err := openBus(cfg)
+	if err != nil {
+		return err
+	}
 	defer eventBus.Close()
+
 	streams := sse.New(sse.Options{Buffer: cfg.StreamBuffer})
+	transfers := transfer.NewRegistry()
+	rendezvous := relay.NewRendezvous()
 
 	// One subscription per process, feeding every local Stream. Every instance
 	// receives every event and filters by audience locally (ADR 0006).
@@ -88,23 +101,48 @@ func run() error {
 		}
 	}()
 
-	presenceSvc := presence.NewMemory(presence.Options{
-		Grace: cfg.PresenceGrace,
-		Announce: func(name string, u presence.User) {
-			e, err := bus.NewEvent(name, nil, u)
-			if err != nil {
-				slog.Error("build presence event", "event", name, "err", err)
-				return
-			}
-			if err := eventBus.Publish(busCtx, e); err != nil {
-				slog.Error("publish presence event", "event", name, "err", err)
-			}
-		},
-	})
-	defer presenceSvc.Close()
+	announce := func(name string, u presence.User) {
+		e, err := bus.NewEvent(name, nil, u)
+		if err != nil {
+			slog.Error("build presence event", "event", name, "err", err)
+			return
+		}
+		if err := eventBus.Publish(busCtx, e); err != nil {
+			slog.Error("publish presence event", "event", name, "err", err)
+		}
+	}
 
-	transfers := transfer.NewRegistry()
-	rendezvous := relay.NewRendezvous()
+	var (
+		rdb         *redis.Client
+		presenceSvc presence.Presence
+		readModel   transfer.ReadModel
+		directory   httpapi.Directory
+	)
+	if cfg.Distributed() {
+		if rdb, err = mirror.Open(bootCtx, cfg.RedisURL); err != nil {
+			return err
+		}
+		defer rdb.Close()
+
+		presenceSvc = presence.NewRedis(rdb, presence.RedisOptions{
+			Options:  presence.Options{Grace: cfg.PresenceGrace, Announce: announce},
+			Instance: cfg.InstanceID,
+			TTL:      cfg.PresenceTTL,
+			Refresh:  cfg.PresenceRefresh,
+		})
+		readModel = mirror.NewTransfers(rdb)
+
+		instances := mirror.NewInstances(rdb)
+		directory = instances
+		// Self-register, and withdraw on the way out so nobody is redirected to
+		// a process that has gone.
+		go instances.Keep(ctx, cfg.InstanceID, cfg.ExternalURL, cfg.InstanceTTL, cfg.InstanceRefresh)
+	} else {
+		presenceSvc = presence.NewMemory(presence.Options{Grace: cfg.PresenceGrace, Announce: announce})
+		readModel = transfer.NewLocal(transfers, cfg.TerminalWindow)
+		directory = httpapi.LocalDirectory{Instance: cfg.InstanceID, BaseURL: cfg.ExternalURL}
+	}
+	defer presenceSvc.Close()
 
 	var draining atomic.Bool
 	api := httpapi.New(httpapi.Options{
@@ -112,7 +150,9 @@ func run() error {
 		Streams:       streams,
 		Presence:      presenceSvc,
 		Transfers:     transfers,
+		ReadModel:     readModel,
 		Rendezvous:    rendezvous,
+		Directory:     directory,
 		Bus:           eventBus,
 		WebUI:         webui.Handler(),
 		Draining:      &draining,
@@ -137,6 +177,7 @@ func run() error {
 		RelayWriteDeadline: cfg.RelayWriteDeadline,
 		RelayBuffer:        cfg.RelayBuffer,
 		ProgressInterval:   cfg.ProgressInterval,
+		ReadModelTTL:       cfg.ReadModelTTL,
 	})
 	go api.Reap(busCtx, cfg.ReapInterval, cfg.TerminalWindow)
 
@@ -154,15 +195,26 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	return serve(ctx, srv, cfg.ShutdownGrace, func(dctx context.Context) {
 		draining.Store(true)
 		// Announce and close every Stream before Shutdown, which otherwise
 		// waits forever on an open SSE handler (Go issue #41344).
 		streams.Drain(dctx)
 	})
+}
+
+// openBus picks an implementation. The interface is pinned to the lowest common
+// denominator of all of them on purpose (ADR 0006).
+func openBus(cfg config.Config) (bus.Bus, error) {
+	o := bus.Options{Buffer: cfg.BusBuffer}
+	switch cfg.Bus {
+	case "nats":
+		return bus.NewNATS(cfg.NATSURL, cfg.BusSubject, o)
+	case "redis", "kafka":
+		return nil, fmt.Errorf("HP_BUS=%s arrives in phase 8", cfg.Bus)
+	default:
+		return bus.NewMemory(o), nil
+	}
 }
 
 // serve runs srv until ctx is done, then drains and shuts down inside grace.

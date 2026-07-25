@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"testing"
 	"time"
@@ -103,15 +104,20 @@ type downloadOptions struct {
 	stopAfter int64
 }
 
+func (x *harness) startDownload(t *testing.T, cookie *http.Cookie, id transfer.ID, o downloadOptions) <-chan received {
+	t.Helper()
+	srv := x.server(t)
+	return startDownload(t, srv, srv.Client(), cookie, id, o)
+}
+
 // startDownload issues GET /d/{id} and drains it in the background.
 //
 // It deliberately does not wait for the request to return: the Recipient's
 // headers are withheld until a Sender attaches (ADR 0002), so Do() blocks until
 // the relay is under way. The signal that the Recipient has parked is the
 // Sender's transfer.ready event, which is what every caller waits for next.
-func (x *harness) startDownload(t *testing.T, cookie *http.Cookie, id transfer.ID, o downloadOptions) <-chan received {
+func startDownload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *http.Cookie, id transfer.ID, o downloadOptions) <-chan received {
 	t.Helper()
-	srv := x.server(t)
 	out := make(chan received, 1)
 
 	req, err := http.NewRequest("GET", srv.URL+"/d/"+string(id), nil)
@@ -121,7 +127,7 @@ func (x *harness) startDownload(t *testing.T, cookie *http.Cookie, id transfer.I
 	req.AddCookie(cookie)
 
 	go func() {
-		res, err := srv.Client().Do(req)
+		res, err := hc.Do(req)
 		if err != nil {
 			out <- received{err: err}
 			return
@@ -160,11 +166,16 @@ type uploadOptions struct {
 	killAfter int64
 }
 
-// upload streams a multipart body through an io.Pipe, so nothing is ever
-// buffered — the same shape spud and the browser use.
 func (x *harness) upload(t *testing.T, cookie *http.Cookie, id transfer.ID, parts []part, o uploadOptions) (*http.Response, error) {
 	t.Helper()
 	srv := x.server(t)
+	return upload(t, srv, srv.Client(), cookie, id, parts, o)
+}
+
+// upload streams a multipart body through an io.Pipe, so nothing is ever
+// buffered — the same shape spud and the browser use.
+func upload(t *testing.T, srv *httptest.Server, hc *http.Client, cookie *http.Cookie, id transfer.ID, parts []part, o uploadOptions) (*http.Response, error) {
+	t.Helper()
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
@@ -208,7 +219,7 @@ func (x *harness) upload(t *testing.T, cookie *http.Cookie, id transfer.ID, part
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.AddCookie(cookie)
-	return srv.Client().Do(req)
+	return hc.Do(req)
 }
 
 // A whole Transfer, end to end, over real sockets: the checksum is the only

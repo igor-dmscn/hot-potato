@@ -30,7 +30,9 @@ type Options struct {
 	Streams    *sse.Registry
 	Presence   presence.Presence
 	Transfers  *transfer.Registry
+	ReadModel  transfer.ReadModel
 	Rendezvous *relay.Rendezvous
+	Directory  Directory
 	Bus        bus.Bus
 	WebUI      http.Handler
 
@@ -47,6 +49,8 @@ type Options struct {
 	RelayWriteDeadline time.Duration
 	RelayBuffer        int
 	ProgressInterval   time.Duration
+	// ReadModelTTL is how long mirrored Transfer metadata survives.
+	ReadModelTTL time.Duration
 	// Now is injected so expiry is testable without waiting for a minute.
 	Now func() time.Time
 }
@@ -56,7 +60,9 @@ type api struct {
 	streams    *sse.Registry
 	presence   presence.Presence
 	transfers  *transfer.Registry
+	readModel  transfer.ReadModel
 	rendezvous *relay.Rendezvous
+	directory  Directory
 	bus        bus.Bus
 
 	draining           *atomic.Bool
@@ -69,6 +75,7 @@ type api struct {
 	relayWriteDeadline time.Duration
 	relayBuffer        int
 	progressInterval   time.Duration
+	readModelTTL       time.Duration
 	now                func() time.Time
 }
 
@@ -87,7 +94,9 @@ func New(o Options) *Server {
 		streams:            o.Streams,
 		presence:           o.Presence,
 		transfers:          o.Transfers,
+		readModel:          o.ReadModel,
 		rendezvous:         o.Rendezvous,
+		directory:          o.Directory,
 		bus:                o.Bus,
 		draining:           o.Draining,
 		instance:           o.Instance,
@@ -99,6 +108,7 @@ func New(o Options) *Server {
 		relayWriteDeadline: o.RelayWriteDeadline,
 		relayBuffer:        o.RelayBuffer,
 		progressInterval:   o.ProgressInterval,
+		readModelTTL:       o.ReadModelTTL,
 		now:                o.Now,
 	}
 
@@ -116,16 +126,23 @@ func New(o Options) *Server {
 
 	mux.Handle("GET /events", o.Auth.Require(http.HandlerFunc(a.events)))
 
+	// A new Transfer is minted here and owned here, so it needs no redirect.
 	mux.Handle("POST /api/transfers", requireJSON(o.Auth.Require(http.HandlerFunc(a.createTransfer))))
-	mux.Handle("POST /api/transfers/{id}/accept", requireJSON(o.Auth.Require(http.HandlerFunc(a.acceptTransfer))))
-	mux.Handle("POST /api/transfers/{id}/deny", requireJSON(o.Auth.Require(http.HandlerFunc(a.denyTransfer))))
-	mux.Handle("POST /api/transfers/{id}/cancel", requireJSON(o.Auth.Require(http.HandlerFunc(a.cancelTransfer))))
+
+	// Everything about an existing Transfer goes to its Owner first. The
+	// ownership check is outermost: a redirect should not cost a session lookup.
+	mux.Handle("POST /api/transfers/{id}/accept",
+		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.acceptTransfer)))))
+	mux.Handle("POST /api/transfers/{id}/deny",
+		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.denyTransfer)))))
+	mux.Handle("POST /api/transfers/{id}/cancel",
+		a.ownership(requireJSON(o.Auth.Require(http.HandlerFunc(a.cancelTransfer)))))
 
 	// The data plane. No requireJSON here: these are multipart and a download,
 	// and a cross-site form *can* send multipart — SameSite=Lax on the session
 	// cookie is what keeps it from carrying an identity.
-	mux.Handle("GET /d/{id}", o.Auth.Require(http.HandlerFunc(a.download)))
-	mux.Handle("POST /d/{id}", o.Auth.Require(http.HandlerFunc(a.upload)))
+	mux.Handle("GET /d/{id}", a.ownership(o.Auth.Require(http.HandlerFunc(a.download))))
+	mux.Handle("POST /d/{id}", a.ownership(o.Auth.Require(http.HandlerFunc(a.upload))))
 
 	mux.Handle("GET /", o.WebUI)
 	return &Server{api: a, handler: mux}
