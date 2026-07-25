@@ -210,8 +210,13 @@ func openBus(cfg config.Config) (bus.Bus, error) {
 	switch cfg.Bus {
 	case "nats":
 		return bus.NewNATS(cfg.NATSURL, cfg.BusSubject, o)
-	case "redis", "kafka":
-		return nil, fmt.Errorf("HP_BUS=%s arrives in phase 8", cfg.Bus)
+	case "redis":
+		if !cfg.Distributed() {
+			return nil, errors.New("HP_BUS=redis needs HP_REDIS_URL")
+		}
+		return bus.NewRedis(cfg.RedisURL, cfg.BusSubject, o)
+	case "kafka":
+		return bus.NewKafka(cfg.KafkaBrokers, cfg.BusSubject, cfg.InstanceID, o)
 	default:
 		return bus.NewMemory(o), nil
 	}
