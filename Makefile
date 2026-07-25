@@ -25,7 +25,9 @@ export HP_TEST_KAFKA_BROKERS ?= localhost:29092
 .PHONY: build
 build: $(SERVER) $(SPUD) ## Build both binaries into ./bin
 
-$(SERVER): $(shell find . -name '*.go' -not -name '*_test.go') go.mod
+# The harness is //go:embed-ed, so it is a prerequisite too: without it, editing
+# public/ relinks nothing and the binary keeps serving the old JS.
+$(SERVER): $(shell find . -name '*.go' -not -name '*_test.go') $(shell find internal/webui/public -type f) go.mod
 	@mkdir -p $(BIN)
 	go build -trimpath -o $@ ./cmd/server
 
