@@ -71,6 +71,11 @@ type Transfer struct {
 
 	BytesRelayed  int64  `json:"bytesRelayed"`
 	FailureReason string `json:"failureReason,omitempty"`
+
+	// Trace is the W3C traceparent of the request that proposed this Transfer.
+	// Its accept, its relay and its outcome are separate requests on possibly
+	// separate instances; carrying the header is what puts them on one trace.
+	Trace string `json:"trace,omitempty"`
 }
 
 // New returns a pending Transfer.

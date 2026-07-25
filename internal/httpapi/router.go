@@ -10,15 +10,18 @@ import (
 
 	"hotpotato/internal/auth"
 	"hotpotato/internal/bus"
+	"hotpotato/internal/metrics"
+	"hotpotato/internal/obs"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/relay"
 	"hotpotato/internal/sse"
 	"hotpotato/internal/transfer"
 )
 
-// SSEOptions are the stream timings, all of them config fields.
+// SSEOptions are the stream timings, all of them config fields. The heartbeat
+// interval is not here: it belongs to the shared Heartbeat, because one timer
+// per Stream does not survive ten thousand of them.
 type SSEOptions struct {
-	Heartbeat     time.Duration
 	Retry         time.Duration
 	WriteDeadline time.Duration
 }
@@ -35,6 +38,12 @@ type Options struct {
 	Directory  Directory
 	Bus        bus.Bus
 	WebUI      http.Handler
+
+	Metrics   *metrics.Metrics
+	Heartbeat *sse.Heartbeat
+	// Checks are the dependencies /readyz probes.
+	Checks       []Check
+	ReadyTimeout time.Duration
 
 	Draining      *atomic.Bool
 	Instance      string
@@ -64,6 +73,11 @@ type api struct {
 	rendezvous *relay.Rendezvous
 	directory  Directory
 	bus        bus.Bus
+	metrics    *metrics.Metrics
+	heartbeat  *sse.Heartbeat
+
+	checks       []Check
+	readyTimeout time.Duration
 
 	draining           *atomic.Bool
 	instance           string
@@ -89,6 +103,9 @@ func New(o Options) *Server {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
+	if o.ReadyTimeout <= 0 {
+		o.ReadyTimeout = defaultReadyTimeout
+	}
 	a := &api{
 		auth:               o.Auth,
 		streams:            o.Streams,
@@ -98,6 +115,10 @@ func New(o Options) *Server {
 		rendezvous:         o.Rendezvous,
 		directory:          o.Directory,
 		bus:                o.Bus,
+		metrics:            o.Metrics,
+		heartbeat:          o.Heartbeat,
+		checks:             o.Checks,
+		readyTimeout:       o.ReadyTimeout,
 		draining:           o.Draining,
 		instance:           o.Instance,
 		sessionMaxAge:      o.SessionMaxAge,
@@ -116,6 +137,8 @@ func New(o Options) *Server {
 	// handler starts with a switch on r.Method.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	mux.HandleFunc("GET /readyz", a.readyz)
+	mux.Handle("GET /metrics", o.Metrics.Handler())
 
 	// requireJSON on every state-changing route; Require on every route that
 	// needs an identity.
@@ -145,7 +168,10 @@ func New(o Options) *Server {
 	mux.Handle("POST /d/{id}", a.ownership(o.Auth.Require(http.HandlerFunc(a.upload))))
 
 	mux.Handle("GET /", o.WebUI)
-	return &Server{api: a, handler: mux}
+
+	// One span per request, outermost, so a redirect or a rejection is on the
+	// trace too.
+	return &Server{api: a, handler: obs.Middleware(mux)}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }

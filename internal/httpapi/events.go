@@ -74,7 +74,8 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 
 	sink := sseSink{w: w, rc: http.NewResponseController(w)}
 	if err := stream.Pump(r.Context(), sink, sse.PumpOptions{
-		Heartbeat:     a.sse.Heartbeat,
+		// One shared clock for every Stream on this instance.
+		Beats:         a.heartbeat,
 		WriteDeadline: a.sse.WriteDeadline,
 		Retry:         a.sse.Retry,
 		First:         snapshot,

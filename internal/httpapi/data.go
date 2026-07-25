@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"hotpotato/internal/auth"
+	"hotpotato/internal/obs"
 	"hotpotato/internal/relay"
 	"hotpotato/internal/transfer"
 )
@@ -48,12 +49,20 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Everything from here on belongs to the Transfer's own trace, which started
+	// when it was proposed — on another request, and possibly another instance.
+	ctx, span := obs.Start(obs.Continue(r.Context(), t.Trace), "relay.recipient",
+		obs.Attr("transfer.id", string(id)), obs.Attr("payload.kind", string(t.Payload.Kind)))
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	sink := relay.NewSink()
 	if err := a.rendezvous.Park(id, sink); err != nil {
 		writeError(w, http.StatusConflict, codeAlreadyAttached, err.Error())
 		return
 	}
 	defer a.rendezvous.Unpark(id)
+	parked := a.now()
 
 	// Only now is the Sender told to start. No status line has been written yet,
 	// which is the entire reason the Recipient goes first: an HTTP status cannot
@@ -70,10 +79,12 @@ func (a *api) download(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case src := <-sink.Ready():
+		a.metrics.RendezvousWait(a.now().Sub(parked).Seconds())
 		a.pump(w, r, t, src, sink)
 	case <-r.Context().Done():
 		a.finish(announce, id, 0, a.now(), relay.WriteError{Err: r.Context().Err()})
 	case <-wait.C:
+		a.metrics.RendezvousWait(a.now().Sub(parked).Seconds())
 		writeError(w, http.StatusGatewayTimeout, codeRendezvousTimeout, errRendezvousTimeout.Error())
 		a.finish(announce, id, 0, a.now(), errRendezvousTimeout)
 	}
@@ -110,6 +121,11 @@ func (a *api) pump(w http.ResponseWriter, r *http.Request, t transfer.Transfer, 
 	// last entry's bytes.
 	if err := rc.Flush(); err != nil {
 		slog.Debug("final flush", "transfer", t.ID, "err", err)
+	}
+
+	a.metrics.RelayedBytes(n)
+	if elapsed := a.now().Sub(started).Seconds(); elapsed > 0 && copyErr == nil {
+		a.metrics.Throughput(float64(n) / elapsed)
 	}
 
 	src.Report(relay.Result{Bytes: n, Err: copyErr, Complete: copyErr == nil})

@@ -66,6 +66,10 @@ type Config struct {
 	BusSubject   string // HP_BUS_SUBJECT — subject, channel or topic
 	RedisURL     string // HP_REDIS_URL
 
+	OTLPEndpoint string        // HP_OTLP_ENDPOINT — empty leaves tracing a no-op
+	TraceSample  float64       // HP_TRACE_SAMPLE, 0–1
+	ReadyTimeout time.Duration // HP_READY_TIMEOUT — the whole /readyz budget
+
 	PresenceTTL     time.Duration // HP_PRESENCE_TTL
 	PresenceRefresh time.Duration // HP_PRESENCE_REFRESH
 	InstanceTTL     time.Duration // HP_INSTANCE_TTL
@@ -135,6 +139,10 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		KafkaBrokers: l.str("HP_KAFKA_BROKERS", "localhost:9092"),
 		BusSubject:   l.str("HP_BUS_SUBJECT", "hp.events"),
 		RedisURL:     l.str("HP_REDIS_URL", ""),
+
+		OTLPEndpoint: l.str("HP_OTLP_ENDPOINT", ""),
+		TraceSample:  l.ratio("HP_TRACE_SAMPLE", 1),
+		ReadyTimeout: l.duration("HP_READY_TIMEOUT", 2*time.Second),
 
 		PresenceTTL:     l.duration("HP_PRESENCE_TTL", 30*time.Second),
 		PresenceRefresh: l.duration("HP_PRESENCE_REFRESH", 10*time.Second),
@@ -245,6 +253,24 @@ func (l *loader) level(key string, def slog.Level) slog.Level {
 		return def
 	}
 	return lvl
+}
+
+// ratio parses a fraction between 0 and 1.
+func (l *loader) ratio(key string, def float64) float64 {
+	v, ok := l.present(key)
+	if !ok {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	switch {
+	case err != nil:
+		l.reject(key, v, "is not a number")
+	case f < 0 || f > 1:
+		l.reject(key, v, "must be between 0 and 1")
+	default:
+		return f
+	}
+	return def
 }
 
 // oneOf accepts a value from a fixed set, and names the set when it does not.

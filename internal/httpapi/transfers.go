@@ -10,6 +10,7 @@ import (
 
 	"hotpotato/internal/auth"
 	"hotpotato/internal/bus"
+	"hotpotato/internal/obs"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/transfer"
 )
@@ -69,11 +70,17 @@ func (a *api) createTransfer(w http.ResponseWriter, r *http.Request) {
 		},
 		now, a.limits.OfferTTL,
 	)
+	// The trace this Transfer belongs to, carried for the rest of its life. Its
+	// accept, its relay and its completion are separate requests, on possibly
+	// separate instances, and this is what puts them on one trace.
+	t.Trace = obs.Traceparent(r.Context())
+
 	if err := a.transfers.Create(t, a.limits, now); err != nil {
 		a.transferError(w, r, err)
 		return
 	}
 	a.mirror(r.Context(), *t)
+	a.metrics.TransferReached(string(t.State))
 
 	// The Sender's other tabs learn about it too, which is what makes the
 	// outbound list the same on every one of them.
@@ -198,9 +205,16 @@ func (a *api) Reap(ctx context.Context, every, keepTerminal time.Duration) {
 // whether this particular failure changed anything (Complete on a short payload
 // does).
 func (a *api) mutate(ctx context.Context, id transfer.ID, fn func(*transfer.Transfer) error) (transfer.Transfer, error) {
-	t, err := a.transfers.Mutate(id, fn)
+	var before transfer.State
+	t, err := a.transfers.Mutate(id, func(x *transfer.Transfer) error {
+		before = x.State
+		return fn(x)
+	})
 	if t.ID != "" {
 		a.mirror(ctx, t)
+		if t.State != before {
+			a.metrics.TransferReached(string(t.State))
+		}
 	}
 	return t, err
 }
@@ -221,9 +235,15 @@ func (a *api) emit(ctx context.Context, name string, audience []string, payload 
 		slog.Error("build event", "event", name, "err", err)
 		return
 	}
+	// The traceparent travels with the event, so a trace can cross the instance
+	// boundary the bus exists to span.
+	e.Trace = obs.Traceparent(ctx)
+
+	started := a.now()
 	if err := a.bus.Publish(ctx, e); err != nil {
 		slog.Error("publish event", "event", name, "err", err)
 	}
+	a.metrics.BusPublish(a.now().Sub(started).Seconds())
 }
 
 // parties is the audience for anything that concerns both ends.

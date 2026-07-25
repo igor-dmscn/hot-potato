@@ -13,6 +13,7 @@ import (
 
 	"hotpotato/internal/auth"
 	"hotpotato/internal/bus"
+	"hotpotato/internal/metrics"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/relay"
 	"hotpotato/internal/sse"
@@ -38,7 +39,9 @@ type harnessOpts struct {
 	heartbeat        time.Duration
 	rendezvousWait   time.Duration
 	progressInterval time.Duration
+	readyTimeout     time.Duration
 	limits           transfer.Limits
+	checks           []Check
 	now              func() time.Time
 }
 
@@ -49,6 +52,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		heartbeat:        time.Hour,
 		rendezvousWait:   5 * time.Second,
 		progressInterval: 20 * time.Millisecond,
+		readyTimeout:     2 * time.Second,
 		limits: transfer.Limits{
 			OfferTTL:          time.Minute,
 			MaxOutbound:       3,
@@ -99,8 +103,14 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	})
 	t.Cleanup(func() { p.Close() })
 
+	// One shared clock, as in production. Most tests set it to an hour so the
+	// heartbeat does not turn up in the middle of an assertion.
+	heartbeat := sse.NewHeartbeat(o.heartbeat)
+	t.Cleanup(heartbeat.Close)
+
 	draining := &atomic.Bool{}
 	transfers := transfer.NewRegistry()
+	rendezvous := relay.NewRendezvous()
 	api := New(Options{
 		Auth:          svc,
 		Streams:       streams,
@@ -111,11 +121,15 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		Draining:      draining,
 		Instance:      "inst-test",
 		SessionMaxAge: 3600,
-		SSE: SSEOptions{
-			Heartbeat:     o.heartbeat,
-			Retry:         3 * time.Second,
-			WriteDeadline: 2 * time.Second,
-		},
+		SSE:           SSEOptions{Retry: 3 * time.Second, WriteDeadline: 2 * time.Second},
+		Heartbeat:     heartbeat,
+		Metrics: metrics.New(metrics.Options{
+			Streams:   func() float64 { return float64(streams.Count()) },
+			Transfers: func() float64 { return float64(transfers.Count()) },
+			Parked:    func() float64 { return float64(rendezvous.Parked()) },
+		}),
+		Checks:             o.checks,
+		ReadyTimeout:       o.readyTimeout,
 		ReadModel:          transfer.NewLocal(transfers, time.Minute),
 		Directory:          LocalDirectory{Instance: "inst-test", BaseURL: "http://inst-test.invalid"},
 		Limits:             o.limits,
@@ -125,7 +139,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		RelayWriteDeadline: 10 * time.Second,
 		RelayBuffer:        64 << 10,
 		ProgressInterval:   o.progressInterval,
-		Rendezvous:         relay.NewRendezvous(),
+		Rendezvous:         rendezvous,
 		Now:                o.now,
 	})
 	return &harness{

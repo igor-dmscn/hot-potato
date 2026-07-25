@@ -63,9 +63,12 @@ func (s *sink) waitFlushes(t *testing.T, n int) {
 	}
 }
 
-func opts() PumpOptions {
+// opts gives every pump test a heartbeat of its own, closed by the test.
+func opts(t *testing.T) PumpOptions {
+	hb := NewHeartbeat(10 * time.Millisecond)
+	t.Cleanup(hb.Close)
 	return PumpOptions{
-		Heartbeat:     10 * time.Millisecond,
+		Beats:         hb,
 		WriteDeadline: time.Second,
 		Retry:         3 * time.Second,
 	}
@@ -76,8 +79,8 @@ func TestPumpWritesRetryThenSnapshotThenEvents(t *testing.T) {
 
 	s := newStream("u_1", 4)
 	out := newSink()
-	o := opts()
-	o.Heartbeat = time.Hour // no heartbeat noise in this one
+	o := opts(t)
+	o.Beats = nil // no heartbeat noise in this one
 	snap, _ := bus.NewEvent("snapshot", nil, map[string]int{"users": 1})
 	o.First = []bus.Event{snap}
 
@@ -111,7 +114,7 @@ func TestPumpHeartbeats(t *testing.T) {
 	s := newStream("u_1", 4)
 	out := newSink()
 	done := make(chan error, 1)
-	go func() { done <- s.Pump(context.Background(), out, opts()) }()
+	go func() { done <- s.Pump(context.Background(), out, opts(t)) }()
 
 	out.waitFlushes(t, 3) // retry, then at least two heartbeats
 	s.close()
@@ -131,8 +134,8 @@ func TestPumpFlushesQueuedEventsAfterClose(t *testing.T) {
 
 	s := newStream("u_1", 4)
 	out := newSink()
-	o := opts()
-	o.Heartbeat = time.Hour
+	o := opts(t)
+	o.Beats = nil
 
 	// Queue before the pump starts, then close: the pump must still drain.
 	s.Send(bus.Event{ID: 1, Name: EventDraining, Data: []byte(`{}`)})
@@ -152,7 +155,7 @@ func TestPumpReturnsWhenClientVanishes(t *testing.T) {
 	s := newStream("u_1", 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- s.Pump(ctx, newSink(), opts()) }()
+	go func() { done <- s.Pump(ctx, newSink(), opts(t)) }()
 	cancel()
 
 	select {

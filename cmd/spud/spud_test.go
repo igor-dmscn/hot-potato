@@ -104,7 +104,7 @@ func serverWithRegistry(t *testing.T) (*httptest.Server, *sse.Registry) {
 }
 
 func SSEOptionsForTest() httpapi.SSEOptions {
-	return httpapi.SSEOptions{Heartbeat: time.Hour, Retry: time.Second, WriteDeadline: 10 * time.Second}
+	return httpapi.SSEOptions{Retry: time.Second, WriteDeadline: 10 * time.Second}
 }
 
 // tree writes a small directory and returns its path plus the entry names a

@@ -19,7 +19,9 @@ import (
 	"hotpotato/internal/bus"
 	"hotpotato/internal/config"
 	"hotpotato/internal/httpapi"
+	"hotpotato/internal/metrics"
 	"hotpotato/internal/mirror"
+	"hotpotato/internal/obs"
 	"hotpotato/internal/postgres"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/relay"
@@ -89,6 +91,44 @@ func run() error {
 	transfers := transfer.NewRegistry()
 	rendezvous := relay.NewRendezvous()
 
+	// One clock for every Stream: ten thousand goroutines is fine, ten thousand
+	// timers is not.
+	heartbeat := sse.NewHeartbeat(cfg.SSEHeartbeat)
+	defer heartbeat.Close()
+
+	shutdownTracing, err := obs.Setup(bootCtx, obs.Options{
+		Endpoint: cfg.OTLPEndpoint,
+		Instance: cfg.InstanceID,
+		Sample:   cfg.TraceSample,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			slog.Error("flush traces", "err", err)
+		}
+	}()
+
+	meters := metrics.New(metrics.Options{
+		Streams:   func() float64 { return float64(streams.Count()) },
+		Transfers: func() float64 { return float64(transfers.Count()) },
+		Parked:    func() float64 { return float64(rendezvous.Parked()) },
+	})
+
+	checks := []httpapi.Check{
+		{Name: "postgres", Ping: store.Ping},
+		{Name: "bus", Ping: func(c context.Context) error {
+			// The bus has no ping, so readiness is "a publish works" — which is
+			// the thing that has to work.
+			e, err := bus.NewEvent("readyz", []string{cfg.InstanceID}, nil)
+			if err != nil {
+				return err
+			}
+			return eventBus.Publish(c, e)
+		}},
+	}
+
 	// One subscription per process, feeding every local Stream. Every instance
 	// receives every event and filters by audience locally (ADR 0006).
 	events, err := eventBus.Subscribe(busCtx)
@@ -131,6 +171,9 @@ func run() error {
 			Refresh:  cfg.PresenceRefresh,
 		})
 		readModel = mirror.NewTransfers(rdb)
+		checks = append(checks, httpapi.Check{Name: "redis", Ping: func(c context.Context) error {
+			return rdb.Ping(c).Err()
+		}})
 
 		instances := mirror.NewInstances(rdb)
 		directory = instances
@@ -155,11 +198,14 @@ func run() error {
 		Directory:     directory,
 		Bus:           eventBus,
 		WebUI:         webui.Handler(),
+		Metrics:       meters,
+		Heartbeat:     heartbeat,
+		Checks:        checks,
+		ReadyTimeout:  cfg.ReadyTimeout,
 		Draining:      &draining,
 		Instance:      cfg.InstanceID,
 		SessionMaxAge: int(cfg.SessionTTL.Seconds()),
 		SSE: httpapi.SSEOptions{
-			Heartbeat:     cfg.SSEHeartbeat,
 			Retry:         cfg.SSERetry,
 			WriteDeadline: cfg.SSEWriteDeadline,
 		},

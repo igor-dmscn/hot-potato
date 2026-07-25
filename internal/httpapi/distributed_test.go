@@ -159,7 +159,7 @@ func newNode(t *testing.T, id string, rdb *redis.Client, natsURL, subject string
 		Draining:      &atomic.Bool{},
 		Instance:      id,
 		SessionMaxAge: 3600,
-		SSE:           SSEOptions{Heartbeat: time.Hour, Retry: time.Second, WriteDeadline: 10 * time.Second},
+		SSE:           SSEOptions{Retry: time.Second, WriteDeadline: 10 * time.Second},
 		Limits: transfer.Limits{
 			OfferTTL:          time.Minute,
 			MaxOutbound:       3,

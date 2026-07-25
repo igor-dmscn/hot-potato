@@ -69,10 +69,12 @@ func (s *Stream) Closed() <-chan struct{} { return s.closed }
 
 func (s *Stream) close() { s.once.Do(func() { close(s.closed) }) }
 
-// PumpOptions carries every duration the pump needs. They are all config
-// fields, which is what lets these tests run in milliseconds.
+// PumpOptions carries everything the pump needs. Every duration here is a
+// config field, which is what lets these tests run in milliseconds.
 type PumpOptions struct {
-	Heartbeat     time.Duration
+	// Beats is shared by every Stream on this instance. A nil one means no
+	// heartbeat, which is what most tests want.
+	Beats         *Heartbeat
 	WriteDeadline time.Duration
 	Retry         time.Duration
 	// First is written before anything queued — the snapshot (ADR 0003).
@@ -105,16 +107,14 @@ func (s *Stream) Pump(ctx context.Context, out Sink, o PumpOptions) error {
 		}
 	}
 
-	hb := time.NewTicker(o.Heartbeat)
-	defer hb.Stop()
-
 	for {
 		select {
 		case e := <-s.ch:
 			if err := write(func(w io.Writer) error { return WriteEvent(w, e) }); err != nil {
 				return err
 			}
-		case <-hb.C:
+		// Fetched fresh each pass: every beat installs a new channel.
+		case <-o.Beats.Beats():
 			if err := write(func(w io.Writer) error { return WriteComment(w, "hb") }); err != nil {
 				return err
 			}
