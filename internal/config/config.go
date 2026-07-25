@@ -41,6 +41,16 @@ type Config struct {
 	StreamBuffer     int           // HP_STREAM_BUFFER — events before a Stream is dropped
 	BusBuffer        int           // HP_BUS_BUFFER
 	PresenceGrace    time.Duration // HP_PRESENCE_GRACE
+
+	OfferTTL          time.Duration // HP_OFFER_TTL
+	MaxOutbound       int           // HP_MAX_OUTBOUND — non-terminal Transfers per Sender
+	MaxPendingInbound int           // HP_MAX_PENDING_INBOUND — unanswered offers per Recipient
+	MaxPayloadBytes   int64         // HP_MAX_PAYLOAD_BYTES
+	MaxEntries        int           // HP_MAX_ENTRIES — files in one folder
+	OfferRate         int           // HP_OFFER_RATE per HP_OFFER_RATE_WINDOW
+	OfferRateWindow   time.Duration // HP_OFFER_RATE_WINDOW
+	ReapInterval      time.Duration // HP_REAP_INTERVAL
+	TerminalWindow    time.Duration // HP_TERMINAL_WINDOW — how long finished Transfers stay in snapshots
 }
 
 // Secret is a configuration value that must never reach a log or a response.
@@ -81,6 +91,16 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		StreamBuffer:     l.count("HP_STREAM_BUFFER", 32),
 		BusBuffer:        l.count("HP_BUS_BUFFER", 256),
 		PresenceGrace:    l.duration("HP_PRESENCE_GRACE", 10*time.Second),
+
+		OfferTTL:          l.duration("HP_OFFER_TTL", time.Minute),
+		MaxOutbound:       l.count("HP_MAX_OUTBOUND", 3),
+		MaxPendingInbound: l.count("HP_MAX_PENDING_INBOUND", 10),
+		MaxPayloadBytes:   l.bytes("HP_MAX_PAYLOAD_BYTES", 10<<30),
+		MaxEntries:        l.count("HP_MAX_ENTRIES", 10_000),
+		OfferRate:         l.count("HP_OFFER_RATE", 10),
+		OfferRateWindow:   l.duration("HP_OFFER_RATE_WINDOW", time.Minute),
+		ReapInterval:      l.duration("HP_REAP_INTERVAL", 5*time.Second),
+		TerminalWindow:    l.duration("HP_TERMINAL_WINDOW", time.Minute),
 	}
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))
@@ -147,6 +167,25 @@ func (l *loader) count(key string, def int) int {
 	switch {
 	case err != nil:
 		l.reject(key, v, "is not a number")
+	case n <= 0:
+		l.reject(key, v, "must be positive")
+	default:
+		return n
+	}
+	return def
+}
+
+// bytes parses a plain byte count. No "10GB" suffixes: one syntax to get wrong
+// is enough, and this value is set once per deployment.
+func (l *loader) bytes(key string, def int64) int64 {
+	v, ok := l.present(key)
+	if !ok {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	switch {
+	case err != nil:
+		l.reject(key, v, "is not a byte count")
 	case n <= 0:
 		l.reject(key, v, "must be positive")
 	default:

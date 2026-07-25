@@ -57,6 +57,10 @@ type Transfer struct {
 
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// EndedAt is when this Transfer reached a terminal state. Snapshots include
+	// terminal Transfers for a short window afterwards, so a brief
+	// disconnection cannot swallow a one-shot outcome such as a denial.
+	EndedAt time.Time `json:"endedAt,omitzero"`
 
 	// AcceptedByStream is the Stream that won the accept. It travels in
 	// transfer.accepted so the User's other tabs know to clear their prompt.
@@ -122,6 +126,7 @@ func (t *Transfer) Deny(by string, now time.Time) error {
 		return ErrExpired
 	}
 	t.State = StateDenied
+	t.EndedAt = now
 	return nil
 }
 
@@ -130,11 +135,11 @@ func (t *Transfer) Deny(by string, now time.Time) error {
 // Unlike Accept it tolerates an offer that is past its TTL but not yet reaped:
 // accepting a dead offer would start something nobody expects, while
 // cancelling one is what the caller wants regardless.
-func (t *Transfer) Cancel(by string, _ time.Time) error {
+func (t *Transfer) Cancel(by string, now time.Time) error {
 	if !t.Party(by) {
 		return ErrForbidden
 	}
-	return t.transition("cancel", StateCanceled, StatePending, StateAccepted, StateStreaming)
+	return t.transition("cancel", StateCanceled, now, StatePending, StateAccepted, StateStreaming)
 }
 
 // AttachRecipient parks the Recipient's GET. It happens before the Sender is
@@ -181,26 +186,28 @@ func (t *Transfer) Complete(bytes int64, now time.Time) error {
 	}
 	t.State = StateCompleted
 	t.BytesRelayed = bytes
+	t.EndedAt = now
 	return nil
 }
 
 // Fail ends a Transfer with a machine-readable reason and the byte count it
 // reached. Every failure produces one of these, addressed to both parties: no
 // connection is ever left hanging without an explanation.
-func (t *Transfer) Fail(reason string, bytes int64, _ time.Time) error {
+func (t *Transfer) Fail(reason string, bytes int64, now time.Time) error {
 	if t.IsTerminal() {
 		return IllegalTransitionError{From: t.State, Action: "fail"}
 	}
 	t.State = StateFailed
 	t.FailureReason = reason
 	t.BytesRelayed = bytes
+	t.EndedAt = now
 	return nil
 }
 
 // Expire is the reaper's transition, and applies only to an offer nobody
 // answered. Once accepted, a Transfer has no deadline.
-func (t *Transfer) Expire(_ time.Time) error {
-	return t.transition("expire", StateExpired, StatePending)
+func (t *Transfer) Expire(now time.Time) error {
+	return t.transition("expire", StateExpired, now, StatePending)
 }
 
 // ExpiredAt reports whether an unanswered offer is past its TTL at now. It is
@@ -209,11 +216,14 @@ func (t Transfer) ExpiredAt(now time.Time) bool {
 	return t.State == StatePending && !now.Before(t.ExpiresAt)
 }
 
-func (t *Transfer) transition(action string, to State, from ...State) error {
+func (t *Transfer) transition(action string, to State, now time.Time, from ...State) error {
 	if err := t.mustBe(action, from...); err != nil {
 		return err
 	}
 	t.State = to
+	if terminal[to] {
+		t.EndedAt = now
+	}
 	return nil
 }
 

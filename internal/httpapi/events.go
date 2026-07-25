@@ -12,6 +12,7 @@ import (
 	"hotpotato/internal/bus"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/sse"
+	"hotpotato/internal/transfer"
 )
 
 // EventSnapshot is the first event on every Stream (ADR 0003): the complete
@@ -20,11 +21,11 @@ const EventSnapshot = "snapshot"
 
 // snapshotView is DESIGN §7's snapshot payload.
 type snapshotView struct {
-	Self      userDTO         `json:"self"`
-	StreamID  string          `json:"streamId"`
-	Instance  string          `json:"instance"`
-	Users     []presence.User `json:"users"`
-	Transfers []any           `json:"transfers"`
+	Self      userDTO             `json:"self"`
+	StreamID  string              `json:"streamId"`
+	Instance  string              `json:"instance"`
+	Users     []presence.User     `json:"users"`
+	Transfers []transfer.Transfer `json:"transfers"`
 }
 
 // events is GET /events: one SSE Stream per browser tab.
@@ -94,7 +95,7 @@ func (a *api) snapshot(ctx context.Context, u auth.User, streamID string) ([]bus
 		StreamID:  streamID,
 		Instance:  a.instance,
 		Users:     users,
-		Transfers: []any{},
+		Transfers: a.transfers.ForUser(u.ID, a.now(), a.terminalWindow),
 	})
 	if err != nil {
 		return nil, err

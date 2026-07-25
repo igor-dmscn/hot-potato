@@ -60,6 +60,18 @@ export const login = (email, password) => send("POST", "/api/login", { email, pa
 
 export const logout = () => send("POST", "/api/logout");
 
+/** POST /api/transfers — propose one. Returns {id, expiresAt}. */
+export const createTransfer = (to, name, kind, totalBytes, entryCount) =>
+  send("POST", "/api/transfers", { to, name, kind, totalBytes, entryCount });
+
+export const acceptTransfer = (id, streamId) =>
+  send("POST", `/api/transfers/${encodeURIComponent(id)}/accept`, { streamId });
+
+export const denyTransfer = (id) => send("POST", `/api/transfers/${encodeURIComponent(id)}/deny`);
+
+export const cancelTransfer = (id) =>
+  send("POST", `/api/transfers/${encodeURIComponent(id)}/cancel`);
+
 /** GET /api/me. Returns null when signed out rather than throwing. */
 export async function me() {
   try {

@@ -7,6 +7,12 @@ import { connect } from "./sse.js";
 import { paintStatus, paintPhases, paintInstance } from "./ui/status.js";
 import { mountAuth, mountSession, paintAuth } from "./ui/auth.js";
 import { paintUsers, paintStream } from "./ui/users.js";
+import {
+  mountSend,
+  paintRecipients,
+  paintOffers,
+  paintTransfers,
+} from "./ui/transfers.js";
 
 const PHASES = [
   "Skeleton and shutdown",
@@ -24,7 +30,7 @@ const PHASES = [
   "WebRTC",
 ];
 
-const CURRENT_PHASE = 2;
+const CURRENT_PHASE = 4;
 const POLL_MS = 3000;
 
 const el = {
@@ -32,6 +38,9 @@ const el = {
   phases: document.querySelector("[data-phases]"),
   instance: document.querySelector("[data-instance]"),
   online: document.querySelector("[data-online]"),
+  offers: document.querySelector("[data-offers]"),
+  send: document.querySelector("[data-send]"),
+  transfers: document.querySelector("[data-transfers]"),
   auth: {
     section: document.querySelector("[data-auth]"),
     strip: document.querySelector("[data-session]"),
@@ -43,13 +52,26 @@ mountAuth(el.auth.section);
 mountSession(el.auth.strip);
 paintPhases(el.phases, PHASES, CURRENT_PHASE);
 
+// Files picked for a Transfer, held until the server says the Recipient is
+// attached. The bytes are sent in phase 5.
+const outbound = new Map();
+
+mountSend(el.send, (id, files) => outbound.set(id, files));
+
 store.subscribe((state) => {
   paintInstance(el.instance, state.instance);
   paintAuth(el.auth, state.self);
   paintStatus(el.status, state.health);
+
   el.online.classList.toggle("hidden", !state.self);
+  el.send.classList.toggle("hidden", !state.self);
   paintUsers(el.online, state.users, state.self);
   paintStream(el.online, state);
+  paintRecipients(el.send, state.users, state.self);
+
+  const transfers = store.transferList();
+  paintOffers(el.offers, transfers, state.self, state.streamId, () => {});
+  paintTransfers(el.transfers, transfers, state.self);
 });
 
 // One Stream while signed in, none while signed out.
@@ -62,6 +84,30 @@ function openStream() {
       snapshot: store.applySnapshot,
       "user.online": store.userOnline,
       "user.offline": store.userOffline,
+
+      // Both of these carry the whole Transfer; everything after is a patch.
+      "transfer.created": store.transferFull,
+      "transfer.offered": store.transferFull,
+      "transfer.accepted": (e) =>
+        store.transferPatch({ id: e.id, state: "accepted", acceptedByStream: e.byStream }),
+      "transfer.denied": (e) => store.transferPatch({ id: e.id, state: "denied" }),
+      "transfer.canceled": (e) => store.transferPatch({ id: e.id, state: "canceled" }),
+      "transfer.progress": (e) =>
+        store.transferPatch({
+          id: e.id,
+          state: "streaming",
+          bytesRelayed: e.bytes,
+          bytesPerSec: e.bytesPerSec,
+        }),
+      "transfer.completed": (e) =>
+        store.transferPatch({ id: e.id, state: "completed", bytesRelayed: e.bytes }),
+      "transfer.failed": (e) =>
+        store.transferPatch({
+          id: e.id,
+          state: "failed",
+          failureReason: e.reason,
+          bytesRelayed: e.bytesRelayed,
+        }),
       // This instance is going away. Reopening lands on whichever instance the
       // entry point picks next, and the new Stream arrives with a fresh
       // snapshot, so nothing has to be replayed.

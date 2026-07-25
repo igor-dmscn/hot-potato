@@ -15,28 +15,45 @@ import (
 	"hotpotato/internal/bus"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/sse"
+	"hotpotato/internal/transfer"
 )
 
 // harness is the whole HTTP surface over in-memory stores and an in-memory
 // bus: no docker, and every duration is a millisecond.
 type harness struct {
-	h        http.Handler
-	svc      *auth.Service
-	streams  *sse.Registry
-	presence *presence.Memory
-	bus      *bus.Memory
-	draining *atomic.Bool
-	srv      *httptest.Server
+	h         http.Handler
+	api       *Server
+	svc       *auth.Service
+	streams   *sse.Registry
+	presence  *presence.Memory
+	transfers *transfer.Registry
+	bus       *bus.Memory
+	draining  *atomic.Bool
+	srv       *httptest.Server
 }
 
 type harnessOpts struct {
 	grace     time.Duration
 	heartbeat time.Duration
+	limits    transfer.Limits
+	now       func() time.Time
 }
 
 func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	t.Helper()
-	o := harnessOpts{grace: 20 * time.Millisecond, heartbeat: time.Hour}
+	o := harnessOpts{
+		grace:     20 * time.Millisecond,
+		heartbeat: time.Hour,
+		limits: transfer.Limits{
+			OfferTTL:          time.Minute,
+			MaxOutbound:       3,
+			MaxPendingInbound: 10,
+			MaxPayloadBytes:   10 << 30,
+			MaxEntries:        10_000,
+			OfferRate:         10,
+			OfferRateWindow:   time.Minute,
+		},
+	}
 	for _, fn := range tweak {
 		fn(&o)
 	}
@@ -78,26 +95,35 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	t.Cleanup(func() { p.Close() })
 
 	draining := &atomic.Bool{}
+	transfers := transfer.NewRegistry()
+	api := New(Options{
+		Auth:          svc,
+		Streams:       streams,
+		Presence:      p,
+		Transfers:     transfers,
+		Bus:           eventBus,
+		WebUI:         http.NotFoundHandler(),
+		Draining:      draining,
+		Instance:      "inst-test",
+		SessionMaxAge: 3600,
+		SSE: SSEOptions{
+			Heartbeat:     o.heartbeat,
+			Retry:         3 * time.Second,
+			WriteDeadline: 2 * time.Second,
+		},
+		Limits:         o.limits,
+		TerminalWindow: time.Minute,
+		Now:            o.now,
+	})
 	return &harness{
-		h: New(Options{
-			Auth:          svc,
-			Streams:       streams,
-			Presence:      p,
-			WebUI:         http.NotFoundHandler(),
-			Draining:      draining,
-			Instance:      "inst-test",
-			SessionMaxAge: 3600,
-			SSE: SSEOptions{
-				Heartbeat:     o.heartbeat,
-				Retry:         3 * time.Second,
-				WriteDeadline: 2 * time.Second,
-			},
-		}),
-		svc:      svc,
-		streams:  streams,
-		presence: p,
-		bus:      eventBus,
-		draining: draining,
+		h:         api,
+		api:       api,
+		svc:       svc,
+		streams:   streams,
+		presence:  p,
+		transfers: transfers,
+		bus:       eventBus,
+		draining:  draining,
 	}
 }
 

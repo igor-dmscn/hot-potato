@@ -79,6 +79,55 @@
           </form>
         </section>
 
+        <!-- Offers waiting on a decision. Loud on purpose. -->
+        <section data-offers class="hidden">
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Incoming
+          </h2>
+          <ul data-list class="mt-4 space-y-3"></ul>
+        </section>
+
+        <!-- Send something. -->
+        <section data-send class="hidden">
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Send
+          </h2>
+          <form data-sendform class="mt-4 space-y-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+            <label class="block">
+              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">To</span>
+              <select data-to
+                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700"></select>
+            </label>
+
+            <div class="flex flex-wrap gap-6">
+              <label class="text-sm">
+                <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">A file</span>
+                <input data-file type="file" class="mt-1 block text-sm">
+              </label>
+              <label class="text-sm">
+                <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">A folder</span>
+                <input data-folder type="file" webkitdirectory directory multiple class="mt-1 block text-sm">
+              </label>
+            </div>
+
+            <p data-chosen class="font-mono text-xs text-stone-500 dark:text-stone-400">nothing picked</p>
+            <p data-senderror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
+
+            <button type="submit"
+              class="rounded bg-stone-900 px-3 py-2 text-sm font-medium text-stone-50 hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
+              Send
+            </button>
+          </form>
+        </section>
+
+        <!-- Everything in flight, both directions. -->
+        <section data-transfers class="hidden">
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Transfers
+          </h2>
+          <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 dark:divide-stone-800 dark:border-stone-800"></ul>
+        </section>
+
         <!-- Signed in: everyone else holding a Stream right now. -->
         <section data-online class="hidden">
           <div class="flex items-baseline justify-between gap-4">

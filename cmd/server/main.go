@@ -20,6 +20,7 @@ import (
 	"hotpotato/internal/postgres"
 	"hotpotato/internal/presence"
 	"hotpotato/internal/sse"
+	"hotpotato/internal/transfer"
 	"hotpotato/internal/webui"
 )
 
@@ -101,23 +102,40 @@ func run() error {
 	})
 	defer presenceSvc.Close()
 
+	transfers := transfer.NewRegistry()
+
 	var draining atomic.Bool
+	api := httpapi.New(httpapi.Options{
+		Auth:          authSvc,
+		Streams:       streams,
+		Presence:      presenceSvc,
+		Transfers:     transfers,
+		Bus:           eventBus,
+		WebUI:         webui.Handler(),
+		Draining:      &draining,
+		Instance:      cfg.InstanceID,
+		SessionMaxAge: int(cfg.SessionTTL.Seconds()),
+		SSE: httpapi.SSEOptions{
+			Heartbeat:     cfg.SSEHeartbeat,
+			Retry:         cfg.SSERetry,
+			WriteDeadline: cfg.SSEWriteDeadline,
+		},
+		Limits: transfer.Limits{
+			OfferTTL:          cfg.OfferTTL,
+			MaxOutbound:       cfg.MaxOutbound,
+			MaxPendingInbound: cfg.MaxPendingInbound,
+			MaxPayloadBytes:   cfg.MaxPayloadBytes,
+			MaxEntries:        cfg.MaxEntries,
+			OfferRate:         cfg.OfferRate,
+			OfferRateWindow:   cfg.OfferRateWindow,
+		},
+		TerminalWindow: cfg.TerminalWindow,
+	})
+	go api.Reap(busCtx, cfg.ReapInterval, cfg.TerminalWindow)
+
 	srv := &http.Server{
-		Addr: cfg.Addr,
-		Handler: httpapi.New(httpapi.Options{
-			Auth:          authSvc,
-			Streams:       streams,
-			Presence:      presenceSvc,
-			WebUI:         webui.Handler(),
-			Draining:      &draining,
-			Instance:      cfg.InstanceID,
-			SessionMaxAge: int(cfg.SessionTTL.Seconds()),
-			SSE: httpapi.SSEOptions{
-				Heartbeat:     cfg.SSEHeartbeat,
-				Retry:         cfg.SSERetry,
-				WriteDeadline: cfg.SSEWriteDeadline,
-			},
-		}),
+		Addr:    cfg.Addr,
+		Handler: api,
 		// WriteTimeout is a deadline on the entire response, so any non-zero
 		// value kills an SSE stream and a multi-gigabyte relay on a schedule.
 		// Long-lived writes take per-write deadlines from

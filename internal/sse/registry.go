@@ -102,6 +102,15 @@ func (r *Registry) Deliver(e bus.Event) {
 	}
 }
 
+// Owns reports whether streamID is one of userID's Streams. An accept carries
+// the Stream that made it, and that value is echoed to the User's other tabs.
+func (r *Registry) Owns(userID, streamID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.byUser[userID][streamID]
+	return ok
+}
+
 // Count is the number of live Streams, for /metrics.
 func (r *Registry) Count() int {
 	r.mu.RLock()
