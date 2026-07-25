@@ -30,7 +30,7 @@ const PHASES = [
   "WebRTC",
 ];
 
-const CURRENT_PHASE = 5;
+const CURRENT_PHASE = 6;
 const POLL_MS = 3000;
 
 const el = {

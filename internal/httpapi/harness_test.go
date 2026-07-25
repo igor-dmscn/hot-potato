@@ -34,19 +34,21 @@ type harness struct {
 }
 
 type harnessOpts struct {
-	grace          time.Duration
-	heartbeat      time.Duration
-	rendezvousWait time.Duration
-	limits         transfer.Limits
-	now            func() time.Time
+	grace            time.Duration
+	heartbeat        time.Duration
+	rendezvousWait   time.Duration
+	progressInterval time.Duration
+	limits           transfer.Limits
+	now              func() time.Time
 }
 
 func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	t.Helper()
 	o := harnessOpts{
-		grace:          20 * time.Millisecond,
-		heartbeat:      time.Hour,
-		rendezvousWait: 5 * time.Second,
+		grace:            20 * time.Millisecond,
+		heartbeat:        time.Hour,
+		rendezvousWait:   5 * time.Second,
+		progressInterval: 20 * time.Millisecond,
 		limits: transfer.Limits{
 			OfferTTL:          time.Minute,
 			MaxOutbound:       3,
@@ -119,7 +121,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		RendezvousWait:     o.rendezvousWait,
 		RelayWriteDeadline: 10 * time.Second,
 		RelayBuffer:        64 << 10,
-		ProgressInterval:   20 * time.Millisecond,
+		ProgressInterval:   o.progressInterval,
 		Rendezvous:         relay.NewRendezvous(),
 		Now:                o.now,
 	})
