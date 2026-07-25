@@ -57,6 +57,12 @@ instance answers `307`.
   streaming body — clients must handle it themselves, as `cmd/spud` does.
 - **Every SSE frame ends in a blank line.** Forgetting the second `\n` makes the
   browser buffer forever.
+- **A browser allows six HTTP/1.1 connections per origin, and every tab holds one
+  open forever for `/events`.** Measured: five streams and `/healthz` answers in
+  4 ms, six and it never answers at all — nor does a seventh tab load `/`. So the
+  harness makes no periodic requests, and anything added to it competes with the
+  streams. Only HTTP/2 lifts the cap, and no browser speaks h2c, so that means
+  TLS.
 - **`internal/transfer` imports no `net/http` and calls no `time.Now()`.** Both
   are enforced by tests in `purity_test.go`. `now` is a parameter to every
   transition.

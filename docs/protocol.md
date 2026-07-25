@@ -63,6 +63,14 @@ ownership redirect (ADR 0007).
 
 ## Events
 
+One Stream per tab, and each one costs a connection for as long as the tab is
+open. A browser allows six per origin over HTTP/1.1, so the sixth tab starves the
+origin: measured, `/healthz` answers in 4 ms with five Streams up and never
+answers with six, and a seventh tab cannot load `/` either. The Stream is also
+the liveness signal — it heartbeats, and `EventSource` reconnects on its own — so
+a client has no reason to poll anything alongside it. Lifting the cap means
+HTTP/2, and since no browser speaks h2c, that means TLS.
+
 The wire format. Note the blank line terminating every frame, and the `:hb`
 heartbeat comment every 15 s:
 
