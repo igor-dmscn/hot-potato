@@ -1,0 +1,8 @@
+# compiled binaries
+/server
+/spud
+*.test
+
+# local config and coverage
+.env
+coverage.out

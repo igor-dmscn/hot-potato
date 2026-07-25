@@ -1,0 +1,80 @@
+<!-- Hot Potato harness. Not the product: a disposable UI that proves the backend works.
+     No build step — Tailwind is the vendored browser build, JS is plain ES modules. -->
+<meta charset="utf-8">
+<title>Hot Potato</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/vendor/tailwind.js"></script>
+<style type="text/tailwindcss">
+  @theme {
+    --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+</style>
+
+<body class="min-h-screen bg-stone-50 text-stone-900 antialiased dark:bg-stone-950 dark:text-stone-100">
+
+  <header class="border-b border-stone-200 dark:border-stone-800">
+    <div class="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-5">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-lg font-semibold tracking-tight">Hot Potato</h1>
+        <p class="hidden text-sm text-stone-500 sm:block dark:text-stone-400">
+          files that never touch the disk
+        </p>
+      </div>
+      <p class="font-mono text-xs text-stone-500 dark:text-stone-400">
+        <span data-instance>—</span>
+      </p>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-5xl px-6 py-10">
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+
+      <section>
+        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+          Server
+        </h2>
+
+        <div data-status class="mt-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+          <div class="flex items-center gap-3">
+            <span data-dot class="size-2.5 rounded-full bg-stone-300 dark:bg-stone-700"></span>
+            <p data-verdict class="text-xl font-medium tracking-tight">Checking…</p>
+          </div>
+          <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm sm:grid-cols-3">
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Endpoint</dt>
+              <dd class="mt-1">/healthz</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Latency</dt>
+              <dd data-latency class="mt-1">—</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Last check</dt>
+              <dd data-checked class="mt-1">—</dd>
+            </div>
+          </dl>
+        </div>
+
+        <p class="mt-4 max-w-prose text-sm leading-relaxed text-stone-600 dark:text-stone-400">
+          This page is served straight out of the binary with <code class="font-mono text-xs">embed.FS</code>,
+          so if you are reading it, static serving works. It will grow one section per phase — the
+          online list next, then transfers, then progress.
+        </p>
+      </section>
+
+      <aside>
+        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+          Roadmap
+        </h2>
+        <ol data-phases class="mt-4 space-y-1 text-sm"></ol>
+        <p class="mt-6 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
+          Full plan in <span class="font-mono">DESIGN.md</span> §12.
+        </p>
+      </aside>
+
+    </div>
+  </main>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
