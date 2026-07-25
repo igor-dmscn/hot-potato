@@ -19,6 +19,7 @@ import (
 	"hotpotato/internal/httpapi"
 	"hotpotato/internal/postgres"
 	"hotpotato/internal/presence"
+	"hotpotato/internal/relay"
 	"hotpotato/internal/sse"
 	"hotpotato/internal/transfer"
 	"hotpotato/internal/webui"
@@ -103,6 +104,7 @@ func run() error {
 	defer presenceSvc.Close()
 
 	transfers := transfer.NewRegistry()
+	rendezvous := relay.NewRendezvous()
 
 	var draining atomic.Bool
 	api := httpapi.New(httpapi.Options{
@@ -110,6 +112,7 @@ func run() error {
 		Streams:       streams,
 		Presence:      presenceSvc,
 		Transfers:     transfers,
+		Rendezvous:    rendezvous,
 		Bus:           eventBus,
 		WebUI:         webui.Handler(),
 		Draining:      &draining,
@@ -129,7 +132,11 @@ func run() error {
 			OfferRate:         cfg.OfferRate,
 			OfferRateWindow:   cfg.OfferRateWindow,
 		},
-		TerminalWindow: cfg.TerminalWindow,
+		TerminalWindow:     cfg.TerminalWindow,
+		RendezvousWait:     cfg.RendezvousWait,
+		RelayWriteDeadline: cfg.RelayWriteDeadline,
+		RelayBuffer:        cfg.RelayBuffer,
+		ProgressInterval:   cfg.ProgressInterval,
 	})
 	go api.Reap(busCtx, cfg.ReapInterval, cfg.TerminalWindow)
 

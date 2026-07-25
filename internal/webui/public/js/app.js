@@ -30,7 +30,7 @@ const PHASES = [
   "WebRTC",
 ];
 
-const CURRENT_PHASE = 4;
+const CURRENT_PHASE = 5;
 const POLL_MS = 3000;
 
 const el = {
@@ -52,8 +52,8 @@ mountAuth(el.auth.section);
 mountSession(el.auth.strip);
 paintPhases(el.phases, PHASES, CURRENT_PHASE);
 
-// Files picked for a Transfer, held until the server says the Recipient is
-// attached. The bytes are sent in phase 5.
+// Files picked for a Transfer, held until the server says the Recipient has
+// attached. Nothing is read from them until then.
 const outbound = new Map();
 
 mountSend(el.send, (id, files) => outbound.set(id, files));
@@ -70,7 +70,11 @@ store.subscribe((state) => {
   paintRecipients(el.send, state.users, state.self);
 
   const transfers = store.transferList();
-  paintOffers(el.offers, transfers, state.self, state.streamId, () => {});
+  // Accepting is what opens the download: the GET parks, and the server tells
+  // the Sender to start once it has.
+  paintOffers(el.offers, transfers, state.self, state.streamId, (t) =>
+    api.receivePayload(t.id),
+  );
   paintTransfers(el.transfers, transfers, state.self);
 });
 
@@ -91,6 +95,19 @@ function openStream() {
       "transfer.accepted": (e) =>
         store.transferPatch({ id: e.id, state: "accepted", acceptedByStream: e.byStream }),
       "transfer.denied": (e) => store.transferPatch({ id: e.id, state: "denied" }),
+
+      // The Recipient is parked. Now, and only now, the bytes may move.
+      "transfer.ready": async (e) => {
+        const files = outbound.get(e.id);
+        if (!files) return; // another tab of ours is the one holding them
+        outbound.delete(e.id);
+        try {
+          await api.sendPayload(e.id, files);
+        } catch (err) {
+          console.error("send failed", err);
+        }
+      },
+
       "transfer.canceled": (e) => store.transferPatch({ id: e.id, state: "canceled" }),
       "transfer.progress": (e) =>
         store.transferPatch({

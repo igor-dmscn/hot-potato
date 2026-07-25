@@ -51,6 +51,11 @@ type Config struct {
 	OfferRateWindow   time.Duration // HP_OFFER_RATE_WINDOW
 	ReapInterval      time.Duration // HP_REAP_INTERVAL
 	TerminalWindow    time.Duration // HP_TERMINAL_WINDOW — how long finished Transfers stay in snapshots
+
+	RendezvousWait     time.Duration // HP_RENDEZVOUS_WAIT — how long a parked Recipient waits
+	RelayWriteDeadline time.Duration // HP_RELAY_WRITE_DEADLINE — per write, not per relay
+	RelayBuffer        int           // HP_RELAY_BUFFER
+	ProgressInterval   time.Duration // HP_PROGRESS_INTERVAL
 }
 
 // Secret is a configuration value that must never reach a log or a response.
@@ -101,6 +106,11 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		OfferRateWindow:   l.duration("HP_OFFER_RATE_WINDOW", time.Minute),
 		ReapInterval:      l.duration("HP_REAP_INTERVAL", 5*time.Second),
 		TerminalWindow:    l.duration("HP_TERMINAL_WINDOW", time.Minute),
+
+		RendezvousWait:     l.duration("HP_RENDEZVOUS_WAIT", 30*time.Second),
+		RelayWriteDeadline: l.duration("HP_RELAY_WRITE_DEADLINE", 30*time.Second),
+		RelayBuffer:        l.count("HP_RELAY_BUFFER", 64<<10),
+		ProgressInterval:   l.duration("HP_PROGRESS_INTERVAL", 250*time.Millisecond),
 	}
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))

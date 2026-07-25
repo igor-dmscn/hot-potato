@@ -145,6 +145,10 @@ func (a *api) cancelTransfer(w http.ResponseWriter, r *http.Request) {
 		a.transferError(w, r, err)
 		return
 	}
+	// A relay already in flight is abandoned at the next buffer boundary. When
+	// nothing is streaming this is a no-op, which is the common case.
+	a.rendezvous.Cancel(t.ID)
+
 	a.emit(r.Context(), EventTransferCanceled, parties(t), map[string]any{"id": t.ID, "by": u.ID})
 	w.WriteHeader(http.StatusNoContent)
 }

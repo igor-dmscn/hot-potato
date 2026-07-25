@@ -14,6 +14,7 @@ import (
 	"hotpotato/internal/auth"
 	"hotpotato/internal/bus"
 	"hotpotato/internal/presence"
+	"hotpotato/internal/relay"
 	"hotpotato/internal/sse"
 	"hotpotato/internal/transfer"
 )
@@ -33,17 +34,19 @@ type harness struct {
 }
 
 type harnessOpts struct {
-	grace     time.Duration
-	heartbeat time.Duration
-	limits    transfer.Limits
-	now       func() time.Time
+	grace          time.Duration
+	heartbeat      time.Duration
+	rendezvousWait time.Duration
+	limits         transfer.Limits
+	now            func() time.Time
 }
 
 func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	t.Helper()
 	o := harnessOpts{
-		grace:     20 * time.Millisecond,
-		heartbeat: time.Hour,
+		grace:          20 * time.Millisecond,
+		heartbeat:      time.Hour,
+		rendezvousWait: 5 * time.Second,
 		limits: transfer.Limits{
 			OfferTTL:          time.Minute,
 			MaxOutbound:       3,
@@ -111,9 +114,14 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 			Retry:         3 * time.Second,
 			WriteDeadline: 2 * time.Second,
 		},
-		Limits:         o.limits,
-		TerminalWindow: time.Minute,
-		Now:            o.now,
+		Limits:             o.limits,
+		TerminalWindow:     time.Minute,
+		RendezvousWait:     o.rendezvousWait,
+		RelayWriteDeadline: 10 * time.Second,
+		RelayBuffer:        64 << 10,
+		ProgressInterval:   20 * time.Millisecond,
+		Rendezvous:         relay.NewRendezvous(),
+		Now:                o.now,
 	})
 	return &harness{
 		h:         api,

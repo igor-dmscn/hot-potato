@@ -72,6 +72,36 @@ export const denyTransfer = (id) => send("POST", `/api/transfers/${encodeURIComp
 export const cancelTransfer = (id) =>
   send("POST", `/api/transfers/${encodeURIComponent(id)}/cancel`);
 
+/**
+ * POST /d/{id} — the data plane. Only legal once transfer.ready has arrived:
+ * before that the Recipient has not parked and the server answers 409.
+ *
+ * The third argument to append is what puts the relative path in each part's
+ * filename. Without it the folder structure is lost, and every file lands in
+ * the root of the archive.
+ */
+export async function sendPayload(id, files) {
+  const form = new FormData();
+  for (const f of files) {
+    form.append("files", f, f.webkitRelativePath || f.name);
+  }
+  const res = await fetch(`/d/${encodeURIComponent(id)}`, { method: "POST", body: form });
+  if (res.status === 204) return;
+
+  const text = await res.text();
+  const parsed = text ? JSON.parse(text) : null;
+  throw new ApiError(res.status, parsed?.error ?? "unknown", parsed?.message);
+}
+
+/**
+ * Start the download. A plain navigation is the right tool: the request parks
+ * until the Sender attaches, then arrives with Content-Disposition and the
+ * browser saves it — no blob, no memory held in the page.
+ */
+export function receivePayload(id) {
+  window.location.assign(`/d/${encodeURIComponent(id)}`);
+}
+
 /** GET /api/me. Returns null when signed out rather than throwing. */
 export async function me() {
   try {
