@@ -109,10 +109,13 @@ internal/webui/     the harness, embedded; files in public/
 
 ## When changing things
 
-- The plan and spec are in `../learning-sse-file-transfer` (`DESIGN.md`,
-  `IMPLEMENTATION-PLAN.md`, `docs/adr/`). If a change contradicts an ADR, say so
-  explicitly rather than quietly diverging — several deliberate divergences are
-  already documented in commit messages and comments.
+- The spec and plan are in `../learning-sse-file-transfer` (`DESIGN.md`,
+  `IMPLEMENTATION-PLAN.md`). The decision records live in [`docs/adr/`](docs/adr/),
+  copied verbatim with an `## Amendment` section on each for what the build found —
+  **read 0004, 0005, 0006 and 0008's amendments before touching the relay, presence,
+  the bus or resume.** If a change contradicts a record, amend the record in the
+  same commit rather than quietly diverging; do not edit the original text above
+  the amendment line.
 - One commit per coherent change, with a message that says *why* and names what
   the tests found. `git log` here is meant to be readable.
 - Measurements in `docs/` are real numbers from a real run. If you change

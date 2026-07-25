@@ -8,9 +8,11 @@ over Server-Sent Events.
 The name is the invariant: the server cannot hold what it is handed.
 
 This is an implementation of the design and plan in
-[`../learning-sse-file-transfer`](../learning-sse-file-transfer) —
-`DESIGN.md` is the spec, `IMPLEMENTATION-PLAN.md` is the build, and `docs/adr/`
-there is the reasoning.
+`../learning-sse-file-transfer` — `DESIGN.md` is the spec and
+`IMPLEMENTATION-PLAN.md` is the build. The decision records are copied into
+[`docs/adr/`](docs/adr/) so this repo reads on its own, with the original text
+intact and an `## Amendment` section on each recording what the build confirmed,
+corrected or measured.
 
 ## Running it
 
@@ -149,6 +151,7 @@ Five things were measured rather than asserted.
 | [`docs/bus-comparison.md`](docs/bus-comparison.md) | four buses, measured, and three findings |
 | [`docs/load-test.md`](docs/load-test.md) | ten thousand Streams, and the drain |
 | [`docs/webrtc.md`](docs/webrtc.md) | on the `webrtc` branch: what bypassing the server costs |
+| [`docs/adr/`](docs/adr/) | the eight decision records, with what the build found appended |
 | [`CLAUDE.md`](CLAUDE.md) | the invariants and conventions, for anyone editing this |
 
 ## Configuration
