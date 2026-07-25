@@ -12,6 +12,11 @@ SPUD    := $(BIN)/spud
 ADDR    ?= 127.0.0.1:8080
 BASE    ?= http://$(ADDR)
 
+# The server requires this — it has no default, so that a production deployment
+# that forgets it refuses to start instead of quietly running against localhost
+# with the development password. compose.yaml owns the containers' copy.
+export HP_DATABASE_URL ?= postgres://hotpotato:hotpotato@localhost:5432/hotpotato
+
 # Integration suites skip themselves unless these point at something real. They
 # are separate from the server's own variables on purpose: a suite that flushes a
 # database should have to be aimed deliberately.

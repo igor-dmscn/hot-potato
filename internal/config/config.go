@@ -108,7 +108,8 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		LogLevel:      l.level("HP_LOG_LEVEL", slog.LevelInfo),
 		ShutdownGrace: l.duration("HP_SHUTDOWN_GRACE", 15*time.Second),
 
-		DatabaseURL:        Secret(l.str("HP_DATABASE_URL", "postgres://hotpotato:hotpotato@localhost:5432/hotpotato")),
+		// No default: see the require calls below.
+		DatabaseURL:        Secret(l.str("HP_DATABASE_URL", "")),
 		SessionTTL:         l.duration("HP_SESSION_TTL", 7*24*time.Hour),
 		LoginMaxFailures:   l.count("HP_LOGIN_MAX_FAILURES", 10),
 		LoginFailureWindow: l.duration("HP_LOGIN_FAILURE_WINDOW", 15*time.Minute),
@@ -152,6 +153,38 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		InstanceRefresh: l.duration("HP_INSTANCE_REFRESH", 10*time.Second),
 		ReadModelTTL:    l.duration("HP_READ_MODEL_TTL", 5*time.Minute),
 	}
+
+	// Values with no safe default, checked after the literal so a conditional
+	// requirement can read what it depends on. There is deliberately no
+	// HP_ENV=prod switch to turn these on: a profile fails open, and forgetting
+	// to set it in production reinstates every development default silently.
+	// Requirements derived from values already present cannot be forgotten.
+
+	// A default here compiles the development password into the binary, and a
+	// typo in the variable's name in production becomes a server quietly running
+	// against localhost instead of one that refuses to start.
+	l.require("HP_DATABASE_URL")
+	if cfg.Distributed() {
+		// Two instances both answering to "inst-local" break ownership routing: a
+		// Transfer ID is "<instance>.<random>" and every other instance answers
+		// 307 to the owner it names (ADR 0007).
+		l.require("HP_INSTANCE_ID")
+		// The client is what follows the 307, so a container-internal default
+		// redirects a browser to a host it cannot resolve.
+		l.require("HP_EXTERNAL_URL")
+	}
+	// A localhost default for a broker is the same trap as the database one.
+	switch cfg.Bus {
+	case "nats":
+		l.require("HP_NATS_URL")
+	case "kafka":
+		l.require("HP_KAFKA_BROKERS")
+	case "redis":
+		// openBus rejects this too, but one message listing everything wrong
+		// beats a second restart to find the next thing.
+		l.require("HP_REDIS_URL")
+	}
+
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))
 	}
@@ -166,6 +199,14 @@ type loader struct {
 
 func (l *loader) reject(key, raw, why string) {
 	l.problems = append(l.problems, fmt.Sprintf("%s=%q %s", key, raw, why))
+}
+
+// require reports a key that has no safe default. present has already rejected
+// a set-but-empty value, so absence is all that is left to catch.
+func (l *loader) require(key string) {
+	if _, ok := l.lookup(key); !ok {
+		l.problems = append(l.problems, key+" is required")
+	}
 }
 
 // present reports a value only when it is set to something non-blank. Set but

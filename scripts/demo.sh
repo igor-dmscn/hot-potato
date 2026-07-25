@@ -8,6 +8,9 @@ set -euo pipefail
 
 ADDR=${ADDR:-127.0.0.1:8099}
 BASE="http://$ADDR"
+# The server has no default for this on purpose, so supply the local one here
+# too: this script is also run directly, not only through make.
+export HP_DATABASE_URL=${HP_DATABASE_URL:-postgres://hotpotato:hotpotato@localhost:5432/hotpotato}
 WORK=$(mktemp -d)
 SUFFIX=$RANDOM
 
