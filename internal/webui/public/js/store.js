@@ -9,7 +9,6 @@ const state = {
   connected: false,
   users: [], // everyone online, from the snapshot then the deltas
   transfers: {}, // by id — both directions
-  health: { reachable: false, ok: false, ms: 0 },
 };
 
 const listeners = new Set();

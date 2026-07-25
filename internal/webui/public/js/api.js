@@ -31,28 +31,6 @@ async function send(method, path, body) {
   return parsed;
 }
 
-/** Probe GET /healthz. Never throws — a dead server is a result, not an error. */
-export async function health() {
-  const started = performance.now();
-  try {
-    const res = await fetch("/healthz", { cache: "no-store" });
-    return {
-      reachable: true,
-      ok: res.ok,
-      status: res.status,
-      ms: Math.round(performance.now() - started),
-    };
-  } catch (err) {
-    return {
-      reachable: false,
-      ok: false,
-      status: 0,
-      ms: Math.round(performance.now() - started),
-      error: String(err),
-    };
-  }
-}
-
 export const signup = (email, displayName, password) =>
   send("POST", "/api/signup", { email, displayName, password });
 

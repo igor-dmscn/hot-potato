@@ -4,15 +4,12 @@
 import * as api from "./api.js";
 import * as store from "./store.js";
 import { connect } from "./sse.js";
-import { paintStatus, paintInstance } from "./ui/status.js";
+import { paintInstance } from "./ui/status.js";
 import { mountAuth, mountSession, paintAuth } from "./ui/auth.js";
 import { paintUsers, paintStream } from "./ui/users.js";
 import { mountSend, paintOffers, paintTransfers } from "./ui/transfers.js";
 
-const POLL_MS = 3000;
-
 const el = {
-  status: document.querySelector("[data-status]"),
   instance: document.querySelector("[data-instance]"),
   online: document.querySelector("[data-online]"),
   offers: document.querySelector("[data-offers]"),
@@ -37,7 +34,6 @@ const send = mountSend(document, (id, files) => outbound.set(id, files));
 store.subscribe((state) => {
   paintInstance(el.instance, state.instance);
   paintAuth(el.auth, state.self);
-  paintStatus(el.status, state.health);
 
   el.online.classList.toggle("hidden", !state.self);
   // The snapshot puts you in your own list (docs/protocol.md); a row you cannot
@@ -130,18 +126,5 @@ function syncStream({ self }) {
 
 store.subscribe(syncStream);
 
-async function poll() {
-  store.set({ health: await api.health() });
-}
-
 // Who am I? A session cookie survives a reload, so ask before drawing.
 store.set({ self: await api.me() });
-poll();
-
-// Don't poll a tab nobody is looking at; catch up the moment it returns.
-setInterval(() => {
-  if (!document.hidden) poll();
-}, POLL_MS);
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) poll();
-});
