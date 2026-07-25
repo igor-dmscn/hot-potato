@@ -61,8 +61,12 @@ instance answers `307`.
   open forever for `/events`.** Measured: five streams and `/healthz` answers in
   4 ms, six and it never answers at all — nor does a seventh tab load `/`. So the
   harness makes no periodic requests, and anything added to it competes with the
-  streams. Only HTTP/2 lifts the cap, and no browser speaks h2c, so that means
-  TLS.
+  streams. `make run-tls` lifts the cap by negotiating HTTP/2, flat at 3–5 ms
+  through twelve streams. Plain HTTP cannot: no browser speaks cleartext h2c.
+- **Do not set `TLSConfig.NextProtos` by hand.** `net/http` appends `h2` itself
+  when it sets up an HTTPS server, and naming the protocols manually is how a
+  server ends up negotiating HTTP/1.1 over TLS and quietly keeping the six-
+  connection cap.
 - **`internal/transfer` imports no `net/http` and calls no `time.Now()`.** Both
   are enforced by tests in `purity_test.go`. `now` is a parameter to every
   transition.
