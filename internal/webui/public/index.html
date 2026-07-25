@@ -34,152 +34,112 @@
     </div>
   </header>
 
-  <main class="mx-auto max-w-5xl px-6 py-10">
-    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+  <!-- One pair of pickers for every row's send buttons: the row says who, the
+       picker says what. -->
+  <input data-file type="file" class="hidden">
+  <input data-folder type="file" webkitdirectory directory multiple class="hidden">
 
-      <div class="space-y-10">
+  <main class="mx-auto max-w-3xl px-6 py-10">
+    <div class="space-y-10">
 
-        <!-- Signed out: the only thing worth showing. -->
-        <section data-auth class="hidden">
-          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-            Identity
-          </h2>
-          <form data-authform class="mt-4 max-w-sm space-y-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
-            <div class="flex gap-1 font-mono text-xs">
-              <button type="button" data-mode="login"
-                class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign in</button>
-              <button type="button" data-mode="signup"
-                class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign up</button>
-            </div>
-
-            <label class="block">
-              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Email</span>
-              <input name="email" type="email" required autocomplete="email"
-                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
-            </label>
-
-            <label data-displayname class="block">
-              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Display name</span>
-              <input name="displayName" type="text" autocomplete="nickname"
-                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
-            </label>
-
-            <label class="block">
-              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Password</span>
-              <input name="password" type="password" required minlength="8" autocomplete="current-password"
-                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
-            </label>
-
-            <p data-autherror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
-
-            <button type="submit"
-              class="w-full rounded bg-stone-900 px-3 py-2 text-sm font-medium text-stone-50 hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
-              <span data-submitlabel>Sign in</span>
-            </button>
-          </form>
-        </section>
-
-        <!-- Offers waiting on a decision. Loud on purpose. -->
-        <section data-offers class="hidden">
-          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-            Incoming
-          </h2>
-          <ul data-list class="mt-4 space-y-3"></ul>
-        </section>
-
-        <!-- Send something. -->
-        <section data-send class="hidden">
-          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-            Send
-          </h2>
-          <form data-sendform class="mt-4 space-y-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
-            <label class="block">
-              <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">To</span>
-              <select data-to
-                class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700"></select>
-            </label>
-
-            <div class="flex flex-wrap gap-6">
-              <label class="text-sm">
-                <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">A file</span>
-                <input data-file type="file" class="mt-1 block text-sm">
-              </label>
-              <label class="text-sm">
-                <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">A folder</span>
-                <input data-folder type="file" webkitdirectory directory multiple class="mt-1 block text-sm">
-              </label>
-            </div>
-
-            <p data-chosen class="font-mono text-xs text-stone-500 dark:text-stone-400">nothing picked</p>
-            <p data-senderror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
-
-            <button type="submit"
-              class="rounded bg-stone-900 px-3 py-2 text-sm font-medium text-stone-50 hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
-              Send
-            </button>
-          </form>
-        </section>
-
-        <!-- Everything in flight, both directions. -->
-        <section data-transfers class="hidden">
-          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-            Transfers
-          </h2>
-          <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 dark:divide-stone-800 dark:border-stone-800"></ul>
-        </section>
-
-        <!-- Signed in: everyone else holding a Stream right now. -->
-        <section data-online class="hidden">
-          <div class="flex items-baseline justify-between gap-4">
-            <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-              Online <span data-count class="tabular-nums">0</span>
-            </h2>
-            <p class="flex items-center gap-2 font-mono text-xs text-stone-500 dark:text-stone-400">
-              <span data-streamdot class="size-2 rounded-full bg-amber-500"></span>
-              <span data-streamlabel>connecting…</span>
-            </p>
-          </div>
-          <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 py-2 dark:divide-stone-800 dark:border-stone-800"></ul>
-        </section>
-
-        <section>
-          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-            Server
-          </h2>
-
-          <div data-status class="mt-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
-            <div class="flex items-center gap-3">
-              <span data-dot class="size-2.5 rounded-full bg-stone-300 dark:bg-stone-700"></span>
-              <p data-verdict class="text-xl font-medium tracking-tight">Checking…</p>
-            </div>
-            <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm sm:grid-cols-3">
-              <div>
-                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Endpoint</dt>
-                <dd class="mt-1">/healthz</dd>
-              </div>
-              <div>
-                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Latency</dt>
-                <dd data-latency class="mt-1">—</dd>
-              </div>
-              <div>
-                <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Last check</dt>
-                <dd data-checked class="mt-1">—</dd>
-              </div>
-            </dl>
-          </div>
-        </section>
-
-      </div>
-
-      <aside>
+      <!-- Signed out: the only thing worth showing. -->
+      <section data-auth class="hidden">
         <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
-          Roadmap
+          Identity
         </h2>
-        <ol data-phases class="mt-4 space-y-1 text-sm"></ol>
-        <p class="mt-6 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
-          Roadmap and docs in <span class="font-mono">README.md</span>.
-        </p>
-      </aside>
+        <form data-authform class="mt-4 max-w-sm space-y-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+          <div class="flex gap-1 font-mono text-xs">
+            <button type="button" data-mode="login"
+              class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign in</button>
+            <button type="button" data-mode="signup"
+              class="rounded px-2 py-1 text-stone-500 dark:text-stone-400">sign up</button>
+          </div>
+
+          <label class="block">
+            <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Email</span>
+            <input name="email" type="email" required autocomplete="email"
+              class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+          </label>
+
+          <label data-displayname class="block">
+            <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Display name</span>
+            <input name="displayName" type="text" autocomplete="nickname"
+              class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+          </label>
+
+          <label class="block">
+            <span class="font-mono text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Password</span>
+            <input name="password" type="password" required minlength="8" autocomplete="current-password"
+              class="mt-1 w-full rounded border border-stone-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-stone-500 dark:border-stone-700">
+          </label>
+
+          <p data-autherror class="hidden text-sm text-rose-600 dark:text-rose-400"></p>
+
+          <button type="submit"
+            class="w-full rounded bg-stone-900 px-3 py-2 text-sm font-medium text-stone-50 hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
+            <span data-submitlabel>Sign in</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Offers waiting on a decision. Loud on purpose. -->
+      <section data-offers class="hidden">
+        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+          Incoming
+        </h2>
+        <ul data-list class="mt-4 space-y-3"></ul>
+      </section>
+
+      <!-- Signed in: everyone else holding a Stream right now, each row its own
+           send button. -->
+      <section data-online class="hidden">
+        <div class="flex items-baseline justify-between gap-4">
+          <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+            Online <span data-count class="tabular-nums">0</span>
+          </h2>
+          <p class="flex items-center gap-2 font-mono text-xs text-stone-500 dark:text-stone-400">
+            <span data-streamdot class="size-2 rounded-full bg-amber-500"></span>
+            <span data-streamlabel>connecting…</span>
+          </p>
+        </div>
+        <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 py-2 dark:divide-stone-800 dark:border-stone-800"></ul>
+        <p data-senderror class="mt-3 hidden text-sm text-rose-600 dark:text-rose-400"></p>
+      </section>
+
+      <!-- Everything in flight, both directions. -->
+      <section data-transfers class="hidden">
+        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+          Transfers
+        </h2>
+        <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 dark:divide-stone-800 dark:border-stone-800"></ul>
+      </section>
+
+      <section>
+        <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+          Server
+        </h2>
+
+        <div data-status class="mt-4 rounded-lg border border-stone-200 p-6 dark:border-stone-800">
+          <div class="flex items-center gap-3">
+            <span data-dot class="size-2.5 rounded-full bg-stone-300 dark:bg-stone-700"></span>
+            <p data-verdict class="text-xl font-medium tracking-tight">Checking…</p>
+          </div>
+          <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm sm:grid-cols-3">
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Endpoint</dt>
+              <dd class="mt-1">/healthz</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Latency</dt>
+              <dd data-latency class="mt-1">—</dd>
+            </div>
+            <div>
+              <dt class="text-xs uppercase tracking-wider text-stone-500 dark:text-stone-400">Last check</dt>
+              <dd data-checked class="mt-1">—</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
 
     </div>
   </main>

@@ -27,94 +27,50 @@ export function bytes(n) {
 }
 
 /**
- * Wire the send form. `onOffer` is handed the picked files and the created
- * Transfer, so the phase that can actually upload them has somewhere to hook in.
+ * Wire the two hidden pickers and return `send(recipientId, kind)` for a user
+ * row to call: the row says who, the picker says what. `onOffer` is handed the
+ * picked files and the created Transfer, so the phase that can actually upload
+ * them has somewhere to hook in.
  */
-export function mountSend(section, onOffer) {
-  const form = section.querySelector("[data-sendform]");
-  const error = section.querySelector("[data-senderror]");
-  const fileInput = form.querySelector("[data-file]");
-  const folderInput = form.querySelector("[data-folder]");
-  const chosen = section.querySelector("[data-chosen]");
-
-  let files = [];
-  let kind = "file";
-
-  const describe = () => {
-    if (files.length === 0) {
-      chosen.textContent = "nothing picked";
-      return null;
-    }
-    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    // A folder's name comes from the first entry's relative path; a file is
-    // just itself.
-    const name =
-      kind === "folder"
-        ? (files[0].webkitRelativePath || files[0].name).split("/")[0]
-        : files[0].name;
-    chosen.textContent = `${name} — ${files.length} file(s), ${bytes(totalBytes)}`;
-    return { name, kind, totalBytes, entryCount: files.length };
+export function mountSend(root, onOffer) {
+  const inputs = {
+    file: root.querySelector("[data-file]"),
+    folder: root.querySelector("[data-folder]"),
   };
+  const error = root.querySelector("[data-senderror]");
+  let to = null;
 
-  fileInput.addEventListener("change", () => {
-    kind = "file";
-    files = [...fileInput.files];
-    folderInput.value = "";
-    describe();
-  });
-  folderInput.addEventListener("change", () => {
-    kind = "folder";
-    files = [...folderInput.files];
-    fileInput.value = "";
-    describe();
-  });
+  for (const [kind, input] of Object.entries(inputs)) {
+    input.addEventListener("change", async () => {
+      const files = [...input.files];
+      // Clear it, or picking the same thing twice fires no second change event.
+      input.value = "";
+      const recipient = to;
+      to = null;
+      if (!recipient || files.length === 0) return;
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    error.classList.add("hidden");
-    const payload = describe();
-    const to = form.querySelector("[data-to]").value;
-    if (!payload || !to) {
-      error.textContent = "pick a recipient and a file";
-      error.classList.remove("hidden");
-      return;
-    }
-    const button = form.querySelector("button[type=submit]");
-    button.disabled = true;
-    try {
-      const created = await api.createTransfer(
-        to,
-        payload.name,
-        payload.kind,
-        payload.totalBytes,
-        payload.entryCount,
-      );
-      onOffer(created.id, files, payload);
-      form.reset();
-      files = [];
-      describe();
-    } catch (err) {
-      error.textContent = err.message;
-      error.classList.remove("hidden");
-    } finally {
-      button.disabled = false;
-    }
-  });
-}
+      error.classList.add("hidden");
+      // A folder's name comes from the first entry's relative path; a file is
+      // just itself.
+      const name =
+        kind === "folder"
+          ? (files[0].webkitRelativePath || files[0].name).split("/")[0]
+          : files[0].name;
+      const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+      try {
+        const created = await api.createTransfer(recipient, name, kind, totalBytes, files.length);
+        onOffer(created.id, files);
+      } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove("hidden");
+      }
+    });
+  }
 
-/** Keep the recipient picker in step with who is online. */
-export function paintRecipients(section, users, self) {
-  const select = section.querySelector("[data-to]");
-  const previous = select.value;
-  select.replaceChildren(
-    ...users.map((u) => {
-      const option = document.createElement("option");
-      option.value = u.id;
-      option.textContent = self && u.id === self.id ? `${u.displayName} (you)` : u.displayName;
-      return option;
-    }),
-  );
-  if (users.some((u) => u.id === previous)) select.value = previous;
+  return (recipientId, kind) => {
+    to = recipientId;
+    inputs[kind].click();
+  };
 }
 
 /**

@@ -4,42 +4,18 @@
 import * as api from "./api.js";
 import * as store from "./store.js";
 import { connect } from "./sse.js";
-import { paintStatus, paintPhases, paintInstance } from "./ui/status.js";
+import { paintStatus, paintInstance } from "./ui/status.js";
 import { mountAuth, mountSession, paintAuth } from "./ui/auth.js";
 import { paintUsers, paintStream } from "./ui/users.js";
-import {
-  mountSend,
-  paintRecipients,
-  paintOffers,
-  paintTransfers,
-} from "./ui/transfers.js";
+import { mountSend, paintOffers, paintTransfers } from "./ui/transfers.js";
 
-const PHASES = [
-  "Skeleton and shutdown",
-  "Auth",
-  "SSE control plane",
-  "Transfer state machine",
-  "Offer, accept, deny",
-  "The relay",
-  "Progress",
-  "Distributed",
-  "Bus comparison",
-  "spud CLI",
-  "Ops and load",
-  "Resume",
-  "WebRTC",
-];
-
-const CURRENT_PHASE = 7;
 const POLL_MS = 3000;
 
 const el = {
   status: document.querySelector("[data-status]"),
-  phases: document.querySelector("[data-phases]"),
   instance: document.querySelector("[data-instance]"),
   online: document.querySelector("[data-online]"),
   offers: document.querySelector("[data-offers]"),
-  send: document.querySelector("[data-send]"),
   transfers: document.querySelector("[data-transfers]"),
   auth: {
     section: document.querySelector("[data-auth]"),
@@ -50,13 +26,13 @@ const el = {
 
 mountAuth(el.auth.section);
 mountSession(el.auth.strip);
-paintPhases(el.phases, PHASES, CURRENT_PHASE);
 
 // Files picked for a Transfer, held until the server says the Recipient has
 // attached. Nothing is read from them until then.
 const outbound = new Map();
 
-mountSend(el.send, (id, files) => outbound.set(id, files));
+// The pickers live outside any section, so the whole document is their root.
+const send = mountSend(document, (id, files) => outbound.set(id, files));
 
 store.subscribe((state) => {
   paintInstance(el.instance, state.instance);
@@ -64,10 +40,10 @@ store.subscribe((state) => {
   paintStatus(el.status, state.health);
 
   el.online.classList.toggle("hidden", !state.self);
-  el.send.classList.toggle("hidden", !state.self);
-  paintUsers(el.online, state.users, state.self);
+  // The snapshot puts you in your own list (docs/protocol.md); a row you cannot
+  // send to is not worth drawing, so drop yourself here.
+  paintUsers(el.online, state.users.filter((u) => u.id !== state.self?.id), send);
   paintStream(el.online, state);
-  paintRecipients(el.send, state.users, state.self);
 
   const transfers = store.transferList();
   // Accepting is what opens the download: the GET parks, and the server tells
