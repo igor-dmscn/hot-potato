@@ -79,6 +79,20 @@
           </form>
         </section>
 
+        <!-- Signed in: everyone else holding a Stream right now. -->
+        <section data-online class="hidden">
+          <div class="flex items-baseline justify-between gap-4">
+            <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
+              Online <span data-count class="tabular-nums">0</span>
+            </h2>
+            <p class="flex items-center gap-2 font-mono text-xs text-stone-500 dark:text-stone-400">
+              <span data-streamdot class="size-2 rounded-full bg-amber-500"></span>
+              <span data-streamlabel>connecting…</span>
+            </p>
+          </div>
+          <ul data-list class="mt-4 divide-y divide-stone-200 rounded-lg border border-stone-200 px-4 py-2 dark:divide-stone-800 dark:border-stone-800"></ul>
+        </section>
+
         <section>
           <h2 class="font-mono text-xs uppercase tracking-widest text-stone-500 dark:text-stone-400">
             Server

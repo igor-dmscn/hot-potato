@@ -3,8 +3,10 @@
 
 import * as api from "./api.js";
 import * as store from "./store.js";
+import { connect } from "./sse.js";
 import { paintStatus, paintPhases, paintInstance } from "./ui/status.js";
 import { mountAuth, mountSession, paintAuth } from "./ui/auth.js";
+import { paintUsers, paintStream } from "./ui/users.js";
 
 const PHASES = [
   "Skeleton and shutdown",
@@ -22,13 +24,14 @@ const PHASES = [
   "WebRTC",
 ];
 
-const CURRENT_PHASE = 1;
+const CURRENT_PHASE = 2;
 const POLL_MS = 3000;
 
 const el = {
   status: document.querySelector("[data-status]"),
   phases: document.querySelector("[data-phases]"),
   instance: document.querySelector("[data-instance]"),
+  online: document.querySelector("[data-online]"),
   auth: {
     section: document.querySelector("[data-auth]"),
     strip: document.querySelector("[data-session]"),
@@ -44,7 +47,49 @@ store.subscribe((state) => {
   paintInstance(el.instance, state.instance);
   paintAuth(el.auth, state.self);
   paintStatus(el.status, state.health);
+  el.online.classList.toggle("hidden", !state.self);
+  paintUsers(el.online, state.users, state.self);
+  paintStream(el.online, state);
 });
+
+// One Stream while signed in, none while signed out.
+let es = null;
+let suspended = false;
+
+function openStream() {
+  es = connect(
+    {
+      snapshot: store.applySnapshot,
+      "user.online": store.userOnline,
+      "user.offline": store.userOffline,
+      // This instance is going away. Reopening lands on whichever instance the
+      // entry point picks next, and the new Stream arrives with a fresh
+      // snapshot, so nothing has to be replayed.
+      "server.draining": () => {
+        suspended = true;
+        closeStream();
+        setTimeout(() => {
+          suspended = false;
+          syncStream(store.get());
+        }, 500);
+      },
+    },
+    (connected) => store.set({ connected }),
+  );
+}
+
+function closeStream() {
+  es?.close();
+  es = null;
+  store.set({ connected: false, users: [], streamId: null });
+}
+
+function syncStream({ self }) {
+  if (self && !es && !suspended) openStream();
+  if (!self && es) closeStream();
+}
+
+store.subscribe(syncStream);
 
 async function poll() {
   store.set({ health: await api.health() });

@@ -5,69 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
-
-	"hotpotato/internal/auth"
 )
-
-// harness is the whole HTTP surface over in-memory stores: no docker, no clock.
-type harness struct {
-	h   http.Handler
-	svc *auth.Service
-}
-
-func newHarness(t *testing.T) *harness {
-	t.Helper()
-	mem := auth.NewMemory()
-	svc := auth.New(auth.Options{
-		Users:              mem,
-		Sessions:           mem.Sessions(),
-		SessionTTL:         time.Hour,
-		LoginMaxFailures:   3,
-		LoginFailureWindow: time.Minute,
-	})
-	return &harness{
-		h: New(Options{
-			Auth:          svc,
-			WebUI:         http.NotFoundHandler(),
-			Draining:      &atomic.Bool{},
-			SessionMaxAge: 3600,
-		}),
-		svc: svc,
-	}
-}
-
-func (x *harness) do(t *testing.T, method, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
-	t.Helper()
-	var r *http.Request
-	if body == "" {
-		r = httptest.NewRequest(method, path, nil)
-	} else {
-		r = httptest.NewRequest(method, path, strings.NewReader(body))
-	}
-	if method != http.MethodGet {
-		r.Header.Set("Content-Type", "application/json")
-	}
-	for _, c := range cookies {
-		r.AddCookie(c)
-	}
-	rec := httptest.NewRecorder()
-	x.h.ServeHTTP(rec, r)
-	return rec
-}
-
-func session(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
-	t.Helper()
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.CookieName {
-			return c
-		}
-	}
-	t.Fatalf("no %s cookie in %v", auth.CookieName, rec.Result().Cookies())
-	return nil
-}
 
 func TestSignupLoginMeLogout(t *testing.T) {
 	t.Parallel()

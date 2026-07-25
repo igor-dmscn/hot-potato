@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"hotpotato/internal/auth"
+	"hotpotato/internal/bus"
 	"hotpotato/internal/config"
 	"hotpotato/internal/httpapi"
 	"hotpotato/internal/postgres"
+	"hotpotato/internal/presence"
+	"hotpotato/internal/sse"
 	"hotpotato/internal/webui"
 )
 
@@ -62,14 +65,58 @@ func run() error {
 		LoginFailureWindow: cfg.LoginFailureWindow,
 	})
 
+	// The control plane. The bus outlives the request-serving context so that
+	// events still flow while the server is draining.
+	busCtx, stopBus := context.WithCancel(context.Background())
+	defer stopBus()
+
+	eventBus := bus.NewMemory(bus.Options{Buffer: cfg.BusBuffer})
+	defer eventBus.Close()
+	streams := sse.New(sse.Options{Buffer: cfg.StreamBuffer})
+
+	// One subscription per process, feeding every local Stream. Every instance
+	// receives every event and filters by audience locally (ADR 0006).
+	events, err := eventBus.Subscribe(busCtx)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for e := range events {
+			streams.Deliver(e)
+		}
+	}()
+
+	presenceSvc := presence.NewMemory(presence.Options{
+		Grace: cfg.PresenceGrace,
+		Announce: func(name string, u presence.User) {
+			e, err := bus.NewEvent(name, nil, u)
+			if err != nil {
+				slog.Error("build presence event", "event", name, "err", err)
+				return
+			}
+			if err := eventBus.Publish(busCtx, e); err != nil {
+				slog.Error("publish presence event", "event", name, "err", err)
+			}
+		},
+	})
+	defer presenceSvc.Close()
+
 	var draining atomic.Bool
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
 			Auth:          authSvc,
+			Streams:       streams,
+			Presence:      presenceSvc,
 			WebUI:         webui.Handler(),
 			Draining:      &draining,
+			Instance:      cfg.InstanceID,
 			SessionMaxAge: int(cfg.SessionTTL.Seconds()),
+			SSE: httpapi.SSEOptions{
+				Heartbeat:     cfg.SSEHeartbeat,
+				Retry:         cfg.SSERetry,
+				WriteDeadline: cfg.SSEWriteDeadline,
+			},
 		}),
 		// WriteTimeout is a deadline on the entire response, so any non-zero
 		// value kills an SSE stream and a multi-gigabyte relay on a schedule.
@@ -85,12 +132,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return serve(ctx, srv, cfg.ShutdownGrace, func(context.Context) {
+	return serve(ctx, srv, cfg.ShutdownGrace, func(dctx context.Context) {
 		draining.Store(true)
-		// The rest of the drain — broadcast server.draining and close every SSE
-		// Stream — arrives in phase 2. The hook exists from day one because
-		// Server.Shutdown waits forever on an open stream (Go issue #41344),
-		// and discovering that after the streams exist is the expensive way.
+		// Announce and close every Stream before Shutdown, which otherwise
+		// waits forever on an open SSE handler (Go issue #41344).
+		streams.Drain(dctx)
 	})
 }
 

@@ -31,6 +31,16 @@ type Config struct {
 	SessionTTL         time.Duration // HP_SESSION_TTL
 	LoginMaxFailures   int           // HP_LOGIN_MAX_FAILURES, per IP+email
 	LoginFailureWindow time.Duration // HP_LOGIN_FAILURE_WINDOW
+
+	// Every timing constant in DESIGN §9 is a field here rather than a literal
+	// somewhere. That is what lets the presence and reaper tests run in
+	// milliseconds instead of sleeping for ten seconds.
+	SSEHeartbeat     time.Duration // HP_SSE_HEARTBEAT
+	SSERetry         time.Duration // HP_SSE_RETRY — the client's reconnect hint
+	SSEWriteDeadline time.Duration // HP_SSE_WRITE_DEADLINE — per write, not per stream
+	StreamBuffer     int           // HP_STREAM_BUFFER — events before a Stream is dropped
+	BusBuffer        int           // HP_BUS_BUFFER
+	PresenceGrace    time.Duration // HP_PRESENCE_GRACE
 }
 
 // Secret is a configuration value that must never reach a log or a response.
@@ -64,6 +74,13 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		SessionTTL:         l.duration("HP_SESSION_TTL", 7*24*time.Hour),
 		LoginMaxFailures:   l.count("HP_LOGIN_MAX_FAILURES", 10),
 		LoginFailureWindow: l.duration("HP_LOGIN_FAILURE_WINDOW", 15*time.Minute),
+
+		SSEHeartbeat:     l.duration("HP_SSE_HEARTBEAT", 15*time.Second),
+		SSERetry:         l.duration("HP_SSE_RETRY", 3*time.Second),
+		SSEWriteDeadline: l.duration("HP_SSE_WRITE_DEADLINE", 10*time.Second),
+		StreamBuffer:     l.count("HP_STREAM_BUFFER", 32),
+		BusBuffer:        l.count("HP_BUS_BUFFER", 256),
+		PresenceGrace:    l.duration("HP_PRESENCE_GRACE", 10*time.Second),
 	}
 	if len(l.problems) > 0 {
 		return Config{}, fmt.Errorf("invalid config: %s", strings.Join(l.problems, "; "))
