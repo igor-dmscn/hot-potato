@@ -68,8 +68,13 @@ open. A browser allows six per origin over HTTP/1.1, so the sixth tab starves th
 origin: measured, `/healthz` answers in 4 ms with five Streams up and never
 answers with six, and a seventh tab cannot load `/` either. The Stream is also
 the liveness signal — it heartbeats, and `EventSource` reconnects on its own — so
-a client has no reason to poll anything alongside it. Lifting the cap means
-HTTP/2, and since no browser speaks h2c, that means TLS.
+a client has no reason to poll anything alongside it.
+
+Serving TLS (`HP_TLS_CERT`, `HP_TLS_KEY`, or `make run-tls`) removes the cap:
+HTTP/2 multiplexes every Stream onto one connection, and the same sweep stays
+flat at 3–5 ms through twelve. It has to be TLS, because no browser speaks
+cleartext h2c. Nothing else about the contract changes — the same sweep, a 22 MB
+relay and a six-Stream drain all behave identically over h2.
 
 The wire format. Note the blank line terminating every frame, and the `:hb`
 heartbeat comment every 15 s:

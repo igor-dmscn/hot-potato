@@ -22,7 +22,12 @@ import (
 // Config or an error naming everything wrong with the environment — one
 // restart, not three.
 type Config struct {
-	Addr          string        // HP_ADDR, default ":8080"
+	Addr string // HP_ADDR, default ":8080"
+	// HP_TLS_CERT and HP_TLS_KEY. Empty serves plain HTTP/1.1. Set, and Go
+	// negotiates HTTP/2 over ALPN, which is the only way a browser gets more than
+	// six connections to this origin — no browser speaks cleartext h2c.
+	TLSCert       string
+	TLSKey        string
 	ExternalURL   string        // HP_EXTERNAL_URL — how other instances reach this one
 	InstanceID    string        // HP_INSTANCE_ID — the prefix of every Transfer ID it owns
 	LogLevel      slog.Level    // HP_LOG_LEVEL
@@ -103,6 +108,8 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	l := loader{lookup: lookup}
 	cfg := Config{
 		Addr:          l.str("HP_ADDR", ":8080"),
+		TLSCert:       l.str("HP_TLS_CERT", ""),
+		TLSKey:        l.str("HP_TLS_KEY", ""),
 		ExternalURL:   l.url("HP_EXTERNAL_URL", "http://localhost:8080"),
 		InstanceID:    l.instanceID("HP_INSTANCE_ID", "inst-local"),
 		LogLevel:      l.level("HP_LOG_LEVEL", slog.LevelInfo),
@@ -164,6 +171,13 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	// typo in the variable's name in production becomes a server quietly running
 	// against localhost instead of one that refuses to start.
 	l.require("HP_DATABASE_URL")
+	// Half a key pair is a deployment that thinks it has TLS.
+	if cfg.TLSCert != "" {
+		l.require("HP_TLS_KEY")
+	}
+	if cfg.TLSKey != "" {
+		l.require("HP_TLS_CERT")
+	}
 	if cfg.Distributed() {
 		// Two instances both answering to "inst-local" break ownership routing: a
 		// Transfer ID is "<instance>.<random>" and every other instance answers

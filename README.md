@@ -24,6 +24,16 @@ make run         # one instance on :8080
 make demo        # a whole transfer, two spuds, no browser
 ```
 
+Past five browser tabs, use HTTPS. Each tab holds one connection open forever for
+its Stream and a browser allows six per origin over HTTP/1.1, so the sixth starves
+the rest — measured in [`docs/protocol.md`](docs/protocol.md). HTTP/2 multiplexes
+them onto one connection, and no browser speaks cleartext h2c:
+
+```sh
+make cert        # self-signed localhost, once
+make run-tls     # https://localhost:8443, HTTP/2 over ALPN
+```
+
 Two instances behind one entry point, which is where the design gets
 interesting:
 

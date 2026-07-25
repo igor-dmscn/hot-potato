@@ -11,6 +11,9 @@ SERVER  := $(BIN)/server
 SPUD    := $(BIN)/spud
 ADDR    ?= 127.0.0.1:8080
 BASE    ?= http://$(ADDR)
+TLS_ADDR ?= 127.0.0.1:8443
+CERT    := $(BIN)/dev-cert.pem
+KEY     := $(BIN)/dev-key.pem
 
 # The server requires this — it has no default, so that a production deployment
 # that forgets it refuses to start instead of quietly running against localhost
@@ -103,6 +106,27 @@ logs: ## Follow the two instances' logs
 .PHONY: run
 run: $(SERVER) ## Run one instance in the foreground (needs `make up`)
 	HP_ADDR=$(ADDR) $(SERVER)
+
+.PHONY: run-tls
+run-tls: $(SERVER) $(CERT) ## The same over HTTPS, which is what gets you HTTP/2
+	HP_ADDR=$(TLS_ADDR) HP_TLS_CERT=$(CERT) HP_TLS_KEY=$(KEY) $(SERVER)
+
+# A browser allows six HTTP/1.1 connections per origin and every tab holds one
+# open forever for /events, so the sixth tab starves the origin. HTTP/2 lifts
+# that, and no browser speaks cleartext h2c, so it needs a certificate.
+#
+# openssl because it is always installed; the browser will warn once and let you
+# through. `mkcert localhost` produces a trusted one if you would rather not see
+# the warning — EventSource fails silently on an untrusted origin.
+$(CERT) $(KEY):
+	@mkdir -p $(BIN)
+	openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+		-keyout $(KEY) -out $(CERT) -subj /CN=localhost \
+		-addext subjectAltName=DNS:localhost,IP:127.0.0.1 2>/dev/null
+	@echo "wrote $(CERT) and $(KEY)"
+
+.PHONY: cert
+cert: $(CERT) ## A self-signed localhost certificate for run-tls
 
 .PHONY: run-debug
 run-debug: $(SERVER) ## Same, with debug logging and fast timings

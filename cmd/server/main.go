@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -246,6 +247,24 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// A browser allows six HTTP/1.1 connections per origin and every tab holds
+	// one open forever for /events, so the sixth tab starves the origin
+	// (docs/protocol.md). HTTP/2 multiplexes them onto one connection, and
+	// because no browser speaks cleartext h2c that requires TLS. Loading the pair
+	// here rather than inside serve turns a bad path into a startup error naming
+	// it. NextProtos is left alone deliberately: net/http appends h2 itself, and
+	// setting it by hand is how a server ends up negotiating HTTP/1.1 over TLS.
+	if cfg.TLSCert != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
+		if err != nil {
+			return fmt.Errorf("tls key pair: %w", err)
+		}
+		srv.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+	}
+
 	return serve(ctx, srv, cfg.ShutdownGrace, func(dctx context.Context) {
 		draining.Store(true)
 		// Announce and close every Stream before Shutdown, which otherwise
@@ -277,6 +296,13 @@ func openBus(cfg config.Config) (bus.Bus, error) {
 func serve(ctx context.Context, srv *http.Server, grace time.Duration, drain func(context.Context)) error {
 	listening := make(chan error, 1)
 	go func() {
+		if srv.TLSConfig != nil {
+			// Empty paths: the pair is already in TLSConfig.Certificates. This is
+			// also what makes net/http set up HTTP/2 over ALPN.
+			slog.Info("listening", "addr", srv.Addr, "tls", true)
+			listening <- srv.ListenAndServeTLS("", "")
+			return
+		}
 		slog.Info("listening", "addr", srv.Addr)
 		listening <- srv.ListenAndServe()
 	}()

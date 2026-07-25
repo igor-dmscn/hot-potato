@@ -59,3 +59,12 @@ decoration.** `spud recv` checks it for a pending offer before waiting for
 `transfer.offered`, because a client that connects *after* the offer was announced
 would otherwise never see it. Any client that only listens for deltas has a race
 it cannot win.
+
+**4. One Stream per tab has a ceiling, and it is six.** A browser allows six
+HTTP/1.1 connections per origin and a Stream holds one for the life of the tab,
+so the sixth tab starves the origin: `/healthz` answers in 4 ms with five Streams
+up, never with six, and a seventh tab cannot load `/` at all. Reconnect-with-a-
+Snapshot is what makes the fix cheap — HTTP/2 multiplexes the Streams onto one
+connection (`make run-tls`, flat at 3–5 ms through twelve), and every tab that
+was starved simply reconnects into a fresh Snapshot with nothing to replay.
+It has to be TLS: no browser speaks cleartext h2c.
