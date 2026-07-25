@@ -18,6 +18,9 @@ type client struct {
 	base string
 	hc   *http.Client
 	self user
+	// attempts is how many times a broken transfer is picked up again before
+	// giving up. One means no resume at all.
+	attempts int
 }
 
 type user struct {
@@ -27,13 +30,17 @@ type user struct {
 }
 
 // dial logs in (or signs up) and keeps the session cookie.
-func dial(ctx context.Context, base, email, password, name string, signup bool) (*client, error) {
+func dial(ctx context.Context, base, email, password, name string, signup bool, attempts int) (*client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
+	if attempts < 1 {
+		attempts = 1
+	}
 	c := &client{
-		base: strings.TrimRight(base, "/"),
+		base:     strings.TrimRight(base, "/"),
+		attempts: attempts,
 		hc: &http.Client{
 			Jar: jar,
 			// Redirects are handled by hand. net/http will not replay a
@@ -79,7 +86,7 @@ func (c *client) postJSON(ctx context.Context, url string, body any) (*http.Resp
 
 // do performs a request and follows one 307 by rebuilding the body from
 // scratch, which is the only way a streaming upload can survive it.
-func (c *client) do(ctx context.Context, method, url string, body func() (io.ReadCloser, error), contentType string) (*http.Response, error) {
+func (c *client) do(ctx context.Context, method, url string, body func() (io.ReadCloser, error), contentType string, decorate ...func(*http.Request)) (*http.Response, error) {
 	// One hop is all ownership ever needs: the redirect target is the Owner, and
 	// the Owner does not redirect.
 	for range 2 {
@@ -96,6 +103,9 @@ func (c *client) do(ctx context.Context, method, url string, body func() (io.Rea
 		}
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
+		}
+		for _, fn := range decorate {
+			fn(req)
 		}
 
 		res, err := c.hc.Do(req)

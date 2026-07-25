@@ -250,13 +250,16 @@ func TestRecipientResumesWithRange(t *testing.T) {
 	x := newHarness(t, resuming(10*time.Second))
 	p := newPair(t, x)
 
-	parts := []part{pattern("report.bin", 4<<20)}
+	// Large enough that the relay cannot finish writing into socket buffers
+	// before the Recipient stops reading. At a few megabytes it sometimes can,
+	// and then there is no interruption to resume from.
+	parts := []part{pattern("report.bin", 64<<20)}
 	total := sum(parts)
 	id := p.offerAs(t, x, transfer.KindFile, "report.bin", total, 1)
 	p.accept(t, x, id)
 
-	// The Recipient reads a quarter and then closes its connection.
-	firstQuarter := total / 4
+	// The Recipient reads a sixteenth and then closes its connection.
+	firstQuarter := total / 16
 	first := x.startDownload(t, p.recipientCookie, id,
 		downloadOptions{keep: true, stopAfter: firstQuarter})
 	p.sender.await(t, EventTransferReady)
@@ -337,14 +340,24 @@ func TestAFolderRefusesARange(t *testing.T) {
 	id := p.offerAs(t, x, transfer.KindFolder, "docs", sum(parts), 1)
 	p.accept(t, x, id)
 
+	// Refused before parking, so the Sender is never invited to send bytes that
+	// have nowhere to go.
 	got := x.startDownload(t, p.recipientCookie, id, downloadOptions{rangeFrom: 100})
-	p.sender.await(t, EventTransferReady)
-	if res, err := x.upload(t, p.senderCookie, id, parts, uploadOptions{}); err == nil {
-		res.Body.Close()
-	}
-
 	if r := <-got; r.status != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("a folder asked for a range = %d, want 416", r.status)
+	}
+	p.sender.quiet(t, EventTransferReady, 200*time.Millisecond)
+
+	// And a Range of zero is just an ordinary download.
+	got = x.startDownload(t, p.recipientCookie, id, downloadOptions{keep: true, alwaysRange: true})
+	p.sender.await(t, EventTransferReady)
+	res, err := x.upload(t, p.senderCookie, id, parts, uploadOptions{})
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	res.Body.Close()
+	if r := <-got; r.status != http.StatusOK {
+		t.Fatalf("a folder with Range: bytes=0- = %d, want 200", r.status)
 	}
 }
 
@@ -359,7 +372,8 @@ func TestAnAbandonedResumeIsReaped(t *testing.T) {
 	})
 	p := newPair(t, x)
 
-	parts := []part{pattern("report.bin", 2<<20)}
+	// Big enough that stopping after 64 KiB really does interrupt the relay.
+	parts := []part{pattern("report.bin", 64<<20)}
 	id := p.offerAs(t, x, transfer.KindFile, "report.bin", sum(parts), 1)
 	p.accept(t, x, id)
 

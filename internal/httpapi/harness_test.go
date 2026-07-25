@@ -39,6 +39,7 @@ type harnessOpts struct {
 	heartbeat        time.Duration
 	rendezvousWait   time.Duration
 	progressInterval time.Duration
+	streamBuffer     int
 	readyTimeout     time.Duration
 	resumeWindow     time.Duration
 	limits           transfer.Limits
@@ -53,6 +54,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 		heartbeat:        time.Hour,
 		rendezvousWait:   5 * time.Second,
 		progressInterval: 20 * time.Millisecond,
+		streamBuffer:     8,
 		readyTimeout:     2 * time.Second,
 		resumeWindow:     0, // most tests want an interruption to be terminal
 		limits: transfer.Limits{
@@ -82,7 +84,7 @@ func newHarness(t *testing.T, tweak ...func(*harnessOpts)) *harness {
 	})
 
 	eventBus := bus.NewMemory(bus.Options{Buffer: 64})
-	streams := sse.New(sse.Options{Buffer: 8})
+	streams := sse.New(sse.Options{Buffer: o.streamBuffer})
 	events, err := eventBus.Subscribe(ctx)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)

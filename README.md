@@ -52,13 +52,29 @@ clean checkout is green with nothing running.
 
 ## The CLI
 
+`spud` is a client for a terminal: it proves the protocol is a protocol, and it
+is the load generator for the measurements. Full reference in
+[`docs/cli.md`](docs/cli.md).
+
 ```sh
 go build -o spud ./cmd/spud
-./spud -email ana@example.com -password ... -signup -name ana watch
-./spud -email ana@example.com -password ... send bea ./some-folder
-./spud -email bea@example.com -password ... recv ./inbox
-./spud -email load@example.com -password ... -streams 10000 load
+
+# two terminals, one transfer
+mkdir -p inbox
+./spud -email bea@example.com -password hunter2hunter2 -name bea -signup recv ./inbox
+./spud -email ana@example.com -password hunter2hunter2 -name ana -signup send bea ./some-folder
+
+# watch the control plane without a browser
+./spud -email ana@example.com -password hunter2hunter2 watch
+
+# ten thousand idle Streams
+./spud -email load@example.com -password hunter2hunter2 -name loadbot -signup -streams 10000 load
 ```
+
+Resume is on by default, in both directions and up to `-attempts` tries: an
+interrupted upload is picked up from the position the relay reports on the control
+plane, and an interrupted download reconnects with `Range: bytes=N-` for whatever
+is not already on disk. `-attempts 1` makes any interruption terminal.
 
 ## Layout
 
@@ -97,7 +113,7 @@ Each commit is one phase of the plan.
 | 8 | Redis and Kafka buses, measured | [`docs/bus-comparison.md`](docs/bus-comparison.md) |
 | 9 | `spud` | `cmd/spud` |
 | 10 | Ops: readyz, metrics, tracing, load test | [`docs/load-test.md`](docs/load-test.md) |
-| 11 | Resume, both sides | `internal/relay/resume.go` |
+| 11 | Resume, both sides | `internal/relay/resume.go`, `cmd/spud/resume.go` |
 | 12 | WebRTC finale | branch `webrtc`, [`docs/webrtc.md`](docs/webrtc.md) |
 
 Phase 12 lives on its own branch. `main` is SSE-only, which is what the project
@@ -105,14 +121,29 @@ set out to build.
 
 ## Measured
 
-- **1 GB relayed** in 5.3s with the heap going 625 KB → 1.2 MB and 1.4 MB
+Five things were measured rather than asserted.
+[`docs/measurements.md`](docs/measurements.md) has the exact commands for each.
+
+- **1 GB relayed** in 5.3 s with the heap going 625 KB → 1.2 MB and 1.4 MB
   allocated in total. Nothing accumulates.
 - **10,000 idle SSE Streams**: 2 goroutines and 1 fd each, ~42 KiB of RSS each,
   3 GC collections at a 0.89 ms median pause.
 - **SIGTERM with all 10,000 open**: exits in 229 ms. Without the drain hook that
   number is not "slow", it is "never" (Go issue #41344).
-- **Bus latency** paced p50: memory 6.6 µs, NATS 140 µs, Redis 145 µs, Kafka
-  840 µs — with the reasoning in `docs/bus-comparison.md`.
+- **Bus latency**, paced p50: memory 6.6 µs, NATS 140 µs, Redis 145 µs, Kafka
+  840 µs — reasoning in [`docs/bus-comparison.md`](docs/bus-comparison.md).
+- **Cross-instance transfer** through two containers behind Caddy: 5 MB with
+  matching checksums, the accept redirected to the owner and its body replayed.
+
+## Documents
+
+| | |
+|---|---|
+| [`docs/cli.md`](docs/cli.md) | `spud`: every command and flag, with output |
+| [`docs/measurements.md`](docs/measurements.md) | all five measurements and how to repeat them |
+| [`docs/bus-comparison.md`](docs/bus-comparison.md) | four buses, measured, and three findings |
+| [`docs/load-test.md`](docs/load-test.md) | ten thousand Streams, and the drain |
+| [`docs/webrtc.md`](docs/webrtc.md) | on the `webrtc` branch: what bypassing the server costs |
 
 ## Configuration
 

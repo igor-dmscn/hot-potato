@@ -184,6 +184,11 @@ func (s *Session) relayPart(part *multipart.Part) error {
 		// The Sender stopped part way. The entry stays open, holding its
 		// position, so a resumed chunk can carry on writing into it.
 		return ReadError{tracked.err}
+	case errors.Is(err, io.ErrShortWrite):
+		// Only a destination can short-write, so this is the Recipient's socket
+		// however it presents itself. Left unclassified it would be reported as
+		// an internal error and treated as unresumable.
+		return WriteError{err}
 	case err != nil:
 		return err
 	}
