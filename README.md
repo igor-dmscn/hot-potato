@@ -145,6 +145,7 @@ Five things were measured rather than asserted.
 | [`docs/protocol.md`](docs/protocol.md) | the wire contract: endpoints, events, errors, limits |
 | [`docs/glossary.md`](docs/glossary.md) | every noun, and the Go type that embodies it |
 | [`docs/flows.md`](docs/flows.md) | how a Transfer happens, drawn |
+| [`docs/internals.md`](docs/internals.md) | the object graph, the goroutines, where state lives, every flow traced through the source |
 | [`docs/cli.md`](docs/cli.md) | `spud`: every command and flag, with output |
 | [`docs/measurements.md`](docs/measurements.md) | all five measurements and how to repeat them |
 | [`docs/bus-comparison.md`](docs/bus-comparison.md) | four buses, measured, and three findings |
